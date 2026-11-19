@@ -2,6 +2,7 @@ import type { CaptureOptions } from "./types.js";
 export declare function invalid(message: string): never;
 export declare function stringField(value: unknown, field: string, limit: number): string;
 export declare function newId(): string;
+export declare function snapshotProperties(value: unknown): string;
 export interface EncodedEvent {
     id: string;
     json: string;

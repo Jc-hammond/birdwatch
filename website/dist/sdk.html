@@ -26,7 +26,7 @@ console.log(receipt.id);
 <ul>
 <li><strong>Identity.</strong> The first visit gets a random anonymous ID. Read it with <code>analytics.distinctId</code>. <code>identify(id)</code> sets the identity for subsequent events, including across page loads. Call <code>reset()</code> at logout to create a new anonymous identity. Previous events retain the identity they had at capture time. Historical identities are separate in the collector.</li>
 <li><strong>Page views.</strong> Call <code>page()</code> after a committed route change to record the current pathname. The module sends events only when called. Query parameters, fragments, referrers, and cookies are excluded.</li>
-<li><strong>Persistence.</strong> The browser client uses the original tracker&#39;s local-storage key and observes changes from other tabs. Choose <code>persistence: &quot;memory&quot;</code> for a page-lifetime identity. If storage is unavailable, it falls back to memory.</li>
+<li><strong>Persistence.</strong> The browser client stores identity in local storage per Birdwatch project and observes changes from other tabs. Choose <code>persistence: &quot;memory&quot;</code> for a page-lifetime identity. If storage is unavailable, it falls back to memory.</li>
 <li><strong>Consent.</strong> Where your app requires consent, create the client after consent is granted. Creating the default browser client initializes its local identity.</li>
 <li><strong>SSR.</strong> Importing the package is side-effect free. Create the browser client after the browser environment is available.</li>
 </ul>
@@ -39,7 +39,7 @@ console.log(receipt.id);
   birdwatch.capture(&quot;sign_up&quot;, { plan: &quot;pro&quot; }).catch(console.error);
 &lt;/script&gt;
 </code></pre>
-<p><code>data-pageview=&quot;true&quot;</code> sends one page view on load. The script exposes <code>window.birdwatch</code> and preserves the original single-event <code>capture()</code> result, <code>{ accepted, duplicates }</code>. It uses the same delivery implementation with a batch size of one. The global also exposes <code>page()</code>, <code>distinctId</code>, <code>reset()</code>, <code>flush()</code>, and <code>shutdown()</code>.</p>
+<p><code>data-pageview=&quot;true&quot;</code> sends one page view on load. The script exposes <code>window.birdwatch</code> and its <code>capture()</code> method returns <code>{ accepted, duplicates }</code>. It uses the same delivery implementation with a batch size of one. The global also exposes <code>page()</code>, <code>distinctId</code>, <code>reset()</code>, <code>flush()</code>, and <code>shutdown()</code>.</p>
 <h2 id="nodejs">Node.js</h2>
 <p>Share one client across requests. Each event carries its own distinct ID.</p>
 <pre><code class="language-js">import { createServerClient } from &quot;@birdwatch/sdk&quot;;

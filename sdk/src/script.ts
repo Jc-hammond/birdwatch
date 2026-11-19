@@ -16,15 +16,14 @@ interface ScriptClient extends Omit<BrowserClient, "capture"> {
 
 const script = document.currentScript as HTMLScriptElement | null;
 if (script?.dataset.key) {
-  // A legacy capture resolves with this individual event's exact accepted/duplicate counts.
+  // A script-tag capture returns the collector's counts for one event.
   const client = createBrowserClient({
     host: new URL(".", script.src).href,
     writeKey: script.dataset.key,
     batchSize: 1,
   });
-  const previous = (window as Window & { birdwatch?: ScriptClient })
-    .birdwatch;
-  if (previous?.shutdown) void previous.shutdown().catch(() => {});
+  const globals = window as Window & { birdwatch?: ScriptClient };
+  if (globals.birdwatch?.shutdown) void globals.birdwatch.shutdown().catch(() => {});
   const api: ScriptClient = {
     get distinctId() {
       return client.distinctId;
@@ -38,8 +37,6 @@ if (script?.dataset.key) {
       return (await client.capture(event, properties, options)).batch;
     },
   };
-  const globals = window as Window & { birdwatch?: ScriptClient; signalnest?: ScriptClient };
   globals.birdwatch = api;
-  globals.signalnest = api;
   if (script.dataset.pageview === "true") void client.page().catch(() => {});
 }

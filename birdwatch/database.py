@@ -65,7 +65,7 @@ def initialize(path, demo=True):
 
 
 def new_project(db, name):
-    key = "sn_" + secrets.token_urlsafe(24)
+    key = "bw_" + secrets.token_urlsafe(24)
     return db.execute("INSERT INTO projects(name,write_key,created_at) VALUES(?,?,?)",
                       (name, key, stamp(utcnow()))).lastrowid
 

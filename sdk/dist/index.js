@@ -1,5 +1,15 @@
 /*! Birdwatch SDK | MIT */
 
+// src/utf8.ts
+function utf8Length(text) {
+  let bytes = 0;
+  for (const char of text) {
+    const code = char.codePointAt(0);
+    bytes += code < 128 ? 1 : code < 2048 ? 2 : code < 65536 ? 3 : 4;
+  }
+  return bytes;
+}
+
 // src/types.ts
 var BirdwatchError = class extends Error {
   constructor(code, message, status, options) {
@@ -93,7 +103,6 @@ function occurrenceTime(value) {
     invalid("timestamp year must be between 1 and 9999.");
   return micros ? iso.slice(0, -1) + micros.padEnd(3, "0") + "Z" : iso;
 }
-var encoder = new TextEncoder();
 function encodeEvent(name, person, props, options) {
   if (!plainObject(options)) invalid("Capture options must be an object.");
   const id = options.id === void 0 ? newId() : stringField(options.id, "id", 128);
@@ -105,7 +114,7 @@ function encodeEvent(name, person, props, options) {
   };
   const properties = snapshotProperties(props === void 0 ? {} : props);
   const json = JSON.stringify(metadata).slice(0, -1) + ',"properties":' + properties + "}";
-  return { id, json, bytes: encoder.encode(json).length };
+  return { id, json, bytes: utf8Length(json) };
 }
 
 // src/transport.ts
@@ -115,12 +124,10 @@ function integer(value, initial, min, max, field) {
     invalid(`${field} must be an integer from ${min} to ${max}.`);
   return value;
 }
-function configure(options) {
-  if (!options || typeof options.host !== "string")
-    invalid("Provide a host and project writeKey.");
+function browserEndpoint(host) {
   let url;
   try {
-    url = new URL(options.host);
+    url = new URL(host);
   } catch {
     return invalid("host must be an absolute HTTP(S) URL.");
   }
@@ -129,6 +136,12 @@ function configure(options) {
       "host must be an HTTP(S) URL without credentials, a query, or a fragment."
     );
   url.pathname = url.pathname.replace(/\/+$/, "") + "/api/capture";
+  return url.href;
+}
+function configure(options, endpointFor = browserEndpoint) {
+  if (!options || typeof options.host !== "string")
+    invalid("Provide a host and project writeKey.");
+  const endpoint = endpointFor(options.host);
   const fetcher = options.fetch ?? globalThis.fetch;
   if (typeof fetcher !== "function")
     invalid("A Fetch API implementation is required.");
@@ -136,7 +149,7 @@ function configure(options) {
     invalid("onError must be a function.");
   return {
     onError: options.onError,
-    endpoint: url.href,
+    endpoint,
     key: stringField(options.writeKey, "writeKey", 128),
     fetch: fetcher,
     batchSize: integer(options.batchSize, 20, 1, 100, "batchSize"),
@@ -250,13 +263,21 @@ var DeliveryQueue = class {
   timer;
   running = false;
   closing;
-  constructor(options) {
-    this.config = configure(options);
+  constructor(options, endpointFor) {
+    this.config = configure(options, endpointFor);
     this.prefix = '{"api_key":' + JSON.stringify(this.config.key) + ',"batch":[';
-    this.overhead = new TextEncoder().encode(this.prefix).length + 2;
+    this.overhead = utf8Length(this.prefix) + 2;
   }
   capture(name, person, props, options) {
-    const delivery = this.enqueue(name, person, props, options);
+    return this.observe(
+      this.enqueue(() => encodeEvent(name, person, props, options ?? {}))
+    );
+  }
+  /** Deliver a previously validated snapshot without consulting the device clock again. */
+  captureEncoded(event) {
+    return this.observe(this.enqueue(() => event));
+  }
+  observe(delivery) {
     void delivery.catch(async (error) => {
       try {
         await this.config.onError?.(error);
@@ -265,7 +286,7 @@ var DeliveryQueue = class {
     });
     return delivery;
   }
-  async enqueue(name, person, props, options = {}) {
+  async enqueue(snapshot) {
     if (this.closing)
       throw new BirdwatchError("closed", "The client has been shut down.");
     if (this.pending.size >= this.config.maxQueue)
@@ -273,7 +294,7 @@ var DeliveryQueue = class {
         "queue_full",
         "The capture queue is full. Await delivery before capturing more events."
       );
-    const event = encodeEvent(name, person, props, options);
+    const event = snapshot();
     let resolve, reject;
     const acknowledged = new Promise((ok, fail) => {
       resolve = ok;
@@ -364,7 +385,7 @@ function createBrowserClient(options) {
   const persistence = options.persistence ?? "localStorage";
   if (!["memory", "localStorage"].includes(persistence))
     invalid("Unknown identity persistence mode.");
-  const key = "signalnest.id." + options.writeKey;
+  const key = "birdwatch.id." + options.writeKey;
   let storage;
   if (persistence === "localStorage") {
     try {

@@ -37,7 +37,7 @@ console.log(receipt.id);
 
 - **Identity.** The first visit gets a random anonymous ID. Read it with `analytics.distinctId`. `identify(id)` sets the identity for subsequent events, including across page loads. Call `reset()` at logout to create a new anonymous identity. Previous events retain the identity they had at capture time. Historical identities are separate in the collector.
 - **Page views.** Call `page()` after a committed route change to record the current pathname. The module sends events only when called. Query parameters, fragments, referrers, and cookies are excluded.
-- **Persistence.** The browser client uses the original tracker's local-storage key and observes changes from other tabs. Choose `persistence: "memory"` for a page-lifetime identity. If storage is unavailable, it falls back to memory.
+- **Persistence.** The browser client stores identity in local storage per Birdwatch project and observes changes from other tabs. Choose `persistence: "memory"` for a page-lifetime identity. If storage is unavailable, it falls back to memory.
 - **Consent.** Where your app requires consent, create the client after consent is granted. Creating the default browser client initializes its local identity.
 - **SSR.** Importing the package is side-effect free. Create the browser client after the browser environment is available.
 
@@ -54,7 +54,7 @@ For a site without a build step, use **Setup → Script tag**. This works with t
 </script>
 ```
 
-`data-pageview="true"` sends one page view on load. The script exposes `window.birdwatch` and preserves the original single-event `capture()` result, `{ accepted, duplicates }`. It uses the same delivery implementation with a batch size of one. The global also exposes `page()`, `distinctId`, `reset()`, `flush()`, and `shutdown()`.
+`data-pageview="true"` sends one page view on load. The script exposes `window.birdwatch` and its `capture()` method returns `{ accepted, duplicates }`. It uses the same delivery implementation with a batch size of one. The global also exposes `page()`, `distinctId`, `reset()`, `flush()`, and `shutdown()`.
 
 ## Node.js
 

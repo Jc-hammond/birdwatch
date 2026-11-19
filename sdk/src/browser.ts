@@ -19,7 +19,7 @@ export function createBrowserClient<C extends CatalogShape<C> = EventCatalog>(
   const persistence = options.persistence ?? "localStorage";
   if (!["memory", "localStorage"].includes(persistence))
     invalid("Unknown identity persistence mode.");
-  const key = "signalnest.id." + options.writeKey;
+  const key = "birdwatch.id." + options.writeKey;
   let storage: Storage | undefined;
   if (persistence === "localStorage") {
     try {

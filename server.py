@@ -18,7 +18,7 @@ from birdwatch.capture import ApiError, capture, string
 from birdwatch.database import connection, initialize, new_project
 
 ROOT = Path(__file__).resolve().parent
-PUBLIC = {"/api/capture", "/birdwatch.js", "/signalnest.js"}
+PUBLIC = {"/api/capture", "/birdwatch.js"}
 
 
 def local_host(host):
@@ -156,8 +156,6 @@ class Handler(BaseHTTPRequestHandler):
             if self.command not in ("GET","HEAD"):
                 raise ApiError(405, "Method not allowed")
             path = self.route.lstrip("/") or "index.html"
-            if path == "signalnest.js":
-                path = "birdwatch.js"
             if path not in ("index.html","birdwatch.js","favicon.svg") and not re.fullmatch(r"assets/[\w.-]+",path):
                 raise ApiError(404, "File not found")
             file = ROOT / "static" / path
@@ -180,15 +178,13 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--host", default=os.environ.get("BIRDWATCH_HOST",os.environ.get("SIGNALNEST_HOST","127.0.0.1")))
-    parser.add_argument("--port", type=int, default=int(os.environ.get("BIRDWATCH_PORT",os.environ.get("SIGNALNEST_PORT","8123"))))
-    legacy_db = ROOT/"data"/"signalnest.sqlite3"
-    fresh_db = ROOT/"data"/"birdwatch.sqlite3"
-    default_db = legacy_db if legacy_db.exists() and not fresh_db.exists() else fresh_db
-    parser.add_argument("--db", default=os.environ.get("BIRDWATCH_DB", os.environ.get("SIGNALNEST_DB", str(default_db))))
+    parser.add_argument("--host", default=os.environ.get("BIRDWATCH_HOST", "127.0.0.1"))
+    parser.add_argument("--port", type=int, default=os.environ.get("BIRDWATCH_PORT", "8123"))
+    default_db = ROOT / "data" / "birdwatch.sqlite3"
+    parser.add_argument("--db", default=os.environ.get("BIRDWATCH_DB", str(default_db)))
     parser.add_argument("--no-demo", action="store_true", help="Initialize a fresh database with an empty project")
     args = parser.parse_args()
-    password = os.environ.get("BIRDWATCH_PASSWORD",os.environ.get("SIGNALNEST_PASSWORD",""))
+    password = os.environ.get("BIRDWATCH_PASSWORD", "")
     if not local_host(args.host) and not password:
         parser.error("Set BIRDWATCH_PASSWORD before binding to a network interface")
     if not (ROOT/"static"/"index.html").exists():

@@ -15,7 +15,7 @@ function harness(options = {}, transport) {
   const requests = [];
   const client = createServerClient({
     host: "https://collector.example/prefix/",
-    writeKey: "sn_test",
+    writeKey: "bw_test",
     flushIntervalMs: 60000,
     maxRetries: 0,
     ...options,

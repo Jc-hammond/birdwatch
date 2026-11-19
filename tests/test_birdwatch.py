@@ -93,7 +93,7 @@ class AnalyticsTest(unittest.TestCase):
         self.assertEqual(self.request("POST","/api/projects",{"name":" "})[0],400)
         status, res, _ = self.request("POST","/api/projects",{"name":"Example"})
         self.assertEqual(status,201)
-        self.assertTrue(self.request("GET",f"/api/projects/{res['id']}/setup")[1]["write_key"].startswith("sn_"))
+        self.assertTrue(self.request("GET",f"/api/projects/{res['id']}/setup")[1]["write_key"].startswith("bw_"))
 
     def test_search_and_pagination(self):
         batch = [{"event":"a_b","distinct_id":"%"} for _ in range(32)]

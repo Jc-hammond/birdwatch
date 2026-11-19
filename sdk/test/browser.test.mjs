@@ -45,9 +45,20 @@ function browser(t, deny = false) {
   return { win, doc, storage, client, batches };
 }
 
-test("adopts the old tracker identity and preserves attribution across identify and reset", async (t) => {
+test("the script tag exposes one Birdwatch global and restores the project identity", async (t) => {
+  const { win, doc, storage } = browser(t);
+  doc.currentScript = { src: "https://collector.test/birdwatch.js", dataset: { key: "key" } };
+  storage.setItem("birdwatch.id.key", "visitor");
+  const before = new Set(Object.keys(win));
+  await import("../dist/birdwatch.js");
+  assert.deepEqual(Object.keys(win).filter((key) => !before.has(key)), ["birdwatch"]);
+  assert.equal(win.birdwatch.distinctId, "visitor");
+  await win.birdwatch.shutdown();
+});
+
+test("restores the stored Birdwatch identity and preserves attribution across identify and reset", async (t) => {
   const env = browser(t);
-  env.storage.setItem("signalnest.id.key", "existing");
+  env.storage.setItem("birdwatch.id.key", "existing");
   const c = env.client();
   const one = c.page();
   c.identify("member");
@@ -64,16 +75,16 @@ test("adopts the old tracker identity and preserves attribution across identify 
     ["existing", "member", anon]
   );
   assert.deepEqual(events[0].properties, { path: "/inside" });
-  assert.equal(env.storage.getItem("signalnest.id.key"), anon);
+  assert.equal(env.storage.getItem("birdwatch.id.key"), anon);
   await c.shutdown();
 });
 test("memory persistence avoids touching stored identities", async (t) => {
   const env = browser(t);
-  env.storage.setItem("signalnest.id.key", "existing");
+  env.storage.setItem("birdwatch.id.key", "existing");
   const c = env.client({ persistence: "memory" });
   assert.notEqual(c.distinctId, "existing");
   c.identify("temporary");
-  assert.equal(env.storage.getItem("signalnest.id.key"), "existing");
+  assert.equal(env.storage.getItem("birdwatch.id.key"), "existing");
   await c.shutdown();
 });
 test("storage-denied browsers still deliver and flush on visibility changes", async (t) => {
