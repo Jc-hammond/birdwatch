@@ -19,7 +19,7 @@ A free, MIT-licensed, self-hosted analytics platform for developers and small te
 | --- | --- |
 | Install to first event in under two minutes, with one command | Browser end-to-end test (R6) |
 | 10M events on a small server, every report under 300 ms | Benchmark (F3), raised only when measured |
-| An agent can install it, instrument an app and answer a product question unaided | Weekly agent run (A10) |
+| An agent can install it, instrument an app and answer a product question unaided | Agent check, run locally weekly and before each release (A10) |
 
 Feature count is deliberately not a claim.
 
@@ -42,6 +42,11 @@ Feature count is deliberately not a claim.
 | Tests | Slim. See AGENTS.md for the rule |
 | Releases | 0.5 Foundation, 0.8 Agent-native and web, 1.0 Product analytics and flags |
 | Session replay | Deferred |
+| Name and namespaces | Birdwatch stays. npm scope `@birdwatch` if it can be claimed, otherwise `@birdwatch-analytics`. Maven group `io.github.jc-hammond`. Docker image `ghcr.io/jc-hammond/birdwatch` |
+| Specifications | Written by the maintainer with Claude in a session, at most one milestone ahead |
+| Starting work | The maintainer starts one session per issue |
+| Cost | Everything runs on free tiers for a public repository. Nothing bills per use |
+| Dates | None. After the first four issues land, review pace and the scope of 0.5 |
 
 ## How to read the items
 
@@ -217,7 +222,7 @@ A tag builds binaries for Linux, macOS and Windows on amd64 and arm64 with check
 
 ### R3 · SDK publishing (M)
 
-npm for the JavaScript packages, Maven Central for Android, a tagged repository for SwiftPM. Confirm the package names are available first. The dashboard's Setup page shows registry installs and keeps the bundled downloads as the offline option.
+npm for the JavaScript packages, Maven Central for Android under the group `io.github.jc-hammond` (changed from `dev.birdwatch`, which would need a domain), a tagged repository for SwiftPM. Confirm the `@birdwatch` npm scope can be claimed first; fall back to `@birdwatch-analytics`. The dashboard's Setup page shows registry installs and keeps the bundled downloads as the offline option.
 
 ### R4 · Website and docs source (M)
 
@@ -297,9 +302,9 @@ A Setup tab with a copyable prompt containing the host, the write key, the SDK t
 
 A plugin repository bundling the MCP configuration and skills ("instrument this app", "weekly product review", "investigate a funnel drop"), asking for the user's instance URL and token, and running the stdio server against a local install in Claude Code. Submitted to the Claude directory. Check the current submission requirements first.
 
-### A10 · Weekly agent run (M)
+### A10 · Agent check (M)
 
-A scheduled job: one sample app, one agent in headless mode, three fixed tasks with known answers (install, instrument, answer a question). It reports pass or fail and cost. Pull-request CI covers the MCP tools and CLI directly without a model.
+One command the maintainer runs locally, weekly and before each release: one sample app, one agent in headless mode, three fixed tasks with known answers (install, instrument, answer a question). It reports pass or fail. It uses the maintainer's existing plan, so there is no API key and no CI secret. Pull-request CI covers the MCP tools and CLI directly without a model.
 
 ## Web analytics
 

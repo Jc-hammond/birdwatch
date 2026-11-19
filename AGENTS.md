@@ -4,6 +4,7 @@ Rules for anyone, human or agent, changing this repository. The plan is in [docs
 
 ## Picking up work
 
+- The maintainer starts one session per issue. Specifications are written by the maintainer with Claude, at most one milestone ahead; agents do not write their own.
 - Work comes from Linear, team `BIR`. Take the highest-priority issue in **Todo** whose area label nobody else has In Progress. **Todo means the issue has a full specification**; Backlog issues are not ready and must not be started.
 - Skip an issue that is blocked by an open issue, or whose description lists a dependency that is not Done.
 - At most three issues are In Progress at once across all agents, each in a different area (the `Area` label: server, dashboard, sdk-web, sdk-mobile, agent, release).
