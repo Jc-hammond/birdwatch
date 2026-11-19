@@ -1,0 +1,190 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>JavaScript & TypeScript SDK · Birdwatch</title><meta name="description" content="Install the Birdwatch SDK and capture typed product events in browsers and Node.js."><link rel="icon" href="/assets/mark.svg"><link rel="stylesheet" href="/style.css"></head><body><a class="skip" href="#main">Skip to content</a><header class="mast"><div class="wrap mast-inner"><a class="wordmark" href="/" aria-label="Birdwatch home"><img src="/assets/mark.svg" height="34" width="34" alt="">Birdwatch</a><nav aria-label="Main"><a href="/#demo">Product</a><a href="/#developers">Developers</a><a href="/docs.html">Docs</a></nav><a class="button ink nav-cta" href="/downloads/birdwatch-source.zip" download>Get Birdwatch <span aria-hidden="true">↗</span></a></div></header><main id="main" class="wrap doc-layout"><nav class="doc-menu" aria-label="Documentation"><small>Documentation</small><a href="/docs.html">Local setup</a><a aria-current="page" href="/sdk.html">SDK guide</a><a href="/native.html">Mobile &amp; Exact</a><div class="toc"><a href="#install">Install</a><a href="#browser">Browser</a><a href="#nodejs">Node.js</a><a href="#delivery-contract">Delivery contract</a><a href="#configuration">Configuration</a><a href="#develop-from-the-source-release">Develop from the source release</a></div></nav><article class="prose"><h1>JavaScript & TypeScript SDK</h1><a class="button orange" href="/downloads/birdwatch-sdk-0.1.0.tgz" download>Download SDK v0.1.0 ↓</a><p>Capture events in browsers and Node.js 20+ and send them directly to your Birdwatch instance. The SDK includes TypeScript declarations, ES modules, CommonJS, and a standalone browser script. It has zero runtime dependencies.</p>
+<h2 id="install">Install</h2>
+<p>In Birdwatch, open a writable project&#39;s <strong>Setup</strong> page, select <strong>Browser SDK</strong> or <strong>Node.js</strong>, and choose <strong>Download SDK</strong>. Place the archive in your app directory and install it locally.</p>
+<pre><code class="language-sh">npm install ./birdwatch-sdk-0.1.0.tgz
+</code></pre>
+<p>The same archive is bundled with the Birdwatch source release at <code>ui/public/assets/birdwatch-sdk-0.1.0.tgz</code>. The dashboard provides a host and a project-specific write key in each example. A browser write key is public and grants ingestion only.</p>
+<h2 id="browser">Browser</h2>
+<p>Create one client when your application starts. The optional type argument describes your own event vocabulary. JavaScript callers use the same API without the type argument.</p>
+<pre><code class="language-ts">import { createBrowserClient } from &quot;@birdwatch/sdk&quot;;
+
+type Events = {
+  sign_up: { plan: &quot;free&quot; | &quot;pro&quot; };
+  search_submitted: { resultCount: number };
+};
+
+const analytics = createBrowserClient&lt;Events&gt;({
+  host: &quot;http://127.0.0.1:8123&quot;,
+  writeKey: &quot;YOUR_PROJECT_WRITE_KEY&quot;,
+});
+
+await analytics.page();
+analytics.identify(&quot;user_42&quot;);
+const receipt = await analytics.capture(&quot;sign_up&quot;, { plan: &quot;pro&quot; });
+console.log(receipt.id);
+</code></pre>
+<ul>
+<li><strong>Identity.</strong> The first visit gets a random anonymous ID. Read it with <code>analytics.distinctId</code>. <code>identify(id)</code> sets the identity for subsequent events, including across page loads. Call <code>reset()</code> at logout to create a new anonymous identity. Previous events retain the identity they had at capture time. Historical identities are separate in the collector.</li>
+<li><strong>Page views.</strong> Call <code>page()</code> after a committed route change to record the current pathname. The module sends events only when called. Query parameters, fragments, referrers, and cookies are excluded.</li>
+<li><strong>Persistence.</strong> The browser client uses the original tracker&#39;s local-storage key and observes changes from other tabs. Choose <code>persistence: &quot;memory&quot;</code> for a page-lifetime identity. If storage is unavailable, it falls back to memory.</li>
+<li><strong>Consent.</strong> Where your app requires consent, create the client after consent is granted. Creating the default browser client initializes its local identity.</li>
+<li><strong>SSR.</strong> Importing the package is side-effect free. Create the browser client after the browser environment is available.</li>
+</ul>
+<h3>Script tag</h3>
+<p>For a site without a build step, use <strong>Setup → Script tag</strong>. This works with the existing snippet.</p>
+<pre><code class="language-html">&lt;script src=&quot;http://127.0.0.1:8123/birdwatch.js&quot;
+        data-key=&quot;YOUR_PROJECT_WRITE_KEY&quot; data-pageview=&quot;true&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+  birdwatch.identify(&quot;user_42&quot;);
+  birdwatch.capture(&quot;sign_up&quot;, { plan: &quot;pro&quot; }).catch(console.error);
+&lt;/script&gt;
+</code></pre>
+<p><code>data-pageview=&quot;true&quot;</code> sends one page view on load. The script exposes <code>window.birdwatch</code> and preserves the original single-event <code>capture()</code> result, <code>{ accepted, duplicates }</code>. It uses the same delivery implementation with a batch size of one. The global also exposes <code>page()</code>, <code>distinctId</code>, <code>reset()</code>, <code>flush()</code>, and <code>shutdown()</code>.</p>
+<h2 id="nodejs">Node.js</h2>
+<p>Share one client across requests. Each event carries its own distinct ID.</p>
+<pre><code class="language-js">import { createServerClient } from &quot;@birdwatch/sdk&quot;;
+
+const analytics = createServerClient({
+  host: process.env.BIRDWATCH_HOST,
+  writeKey: process.env.BIRDWATCH_WRITE_KEY,
+  onError(error) {
+    console.warn(&quot;Analytics delivery failed&quot;, error.code, error.status);
+  },
+});
+
+try {
+  await analytics.capture({
+    distinctId: &quot;user_42&quot;,
+    event: &quot;payment_captured&quot;,
+    id: &quot;payment_8391&quot;,
+    properties: { amountCents: 2400, currency: &quot;USD&quot; },
+  });
+} finally {
+  await analytics.shutdown();
+}
+</code></pre>
+<p>In a long-running service, call <code>shutdown()</code> from your application&#39;s shutdown handler. In a short-lived worker, await <code>capture()</code> or <code>flush()</code> before returning control to the host. CommonJS callers can use <code>const { createServerClient } = require(&quot;@birdwatch/sdk&quot;)</code>. Server clients support the same optional event catalog as browser clients.</p>
+<h2 id="delivery-contract">Delivery contract</h2>
+<div class="table-scroller"><table>
+<thead>
+<tr>
+<th>Method</th>
+<th>What completion means</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>capture(...)</code></td>
+<td>Resolves with <code>{ id, batch: { accepted, duplicates } }</code> after the collector acknowledges the event. Both a new insert and an existing ID are successful delivery. The counts describe the whole request.</td>
+</tr>
+<tr>
+<td><code>flush()</code></td>
+<td>Starts delivery immediately and waits for all events outstanding at the time of the call. It rejects after those events settle if any failed. Events captured later have their own receipts.</td>
+</tr>
+<tr>
+<td><code>shutdown()</code></td>
+<td>Closes admission, drains pending events, and detaches browser listeners. Repeated calls share the same completion promise.</td>
+</tr>
+</tbody></table></div>
+<p>The SDK snapshots identity, properties, timestamp, and ID when you call <code>capture</code>. It sends batches in capture order, with one request in flight per client. Capture a burst of events first and await their promises together to take advantage of batching. Awaiting each capture in a loop sends them sequentially.</p>
+<p>If a connection fails after the collector commits, retries reuse the identical request body and event IDs. The collector&#39;s unique project-and-ID constraint deduplicates retries. A caller-supplied <code>id</code> extends deduplication to retries initiated by your application. Pair one ID with one logical event and one project.</p>
+<p>Browser capture accepts <code>{ id, timestamp }</code> as its third argument. Server capture accepts the same fields on the event object. A timestamp can be a valid <code>Date</code> or a zoned ISO 8601 string. The default is the event&#39;s capture time. Properties must be plain JSON objects and fit the collector&#39;s 32 KiB encoded limit.</p>
+<h3>Failures</h3>
+<p><code>capture()</code> rejects with a <code>BirdwatchError</code>. The optional <code>onError</code> observer receives each failed capture once, including when the caller leaves its promise in the background. Observer errors are isolated from delivery. Configuration and invalid calls to <code>identify()</code> throw synchronously.</p>
+<div class="table-scroller"><table>
+<thead>
+<tr>
+<th>Code</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>invalid_input</code></td>
+<td>A setting, identifier, timestamp, or property value is invalid.</td>
+</tr>
+<tr>
+<td><code>queue_full</code></td>
+<td>The pending-event limit has been reached. The new event was declined.</td>
+</tr>
+<tr>
+<td><code>closed</code></td>
+<td>Capture was called after shutdown began.</td>
+</tr>
+<tr>
+<td><code>network</code>, <code>timeout</code></td>
+<td>A network failure or request deadline exhausted the retry budget.</td>
+</tr>
+<tr>
+<td><code>http</code></td>
+<td>The collector or proxy rejected the request. <code>error.status</code> contains the HTTP status.</td>
+</tr>
+<tr>
+<td><code>invalid_response</code></td>
+<td>The response did not acknowledge the expected number of events.</td>
+</tr>
+</tbody></table></div>
+<p>Timeouts, network failures, invalid acknowledgements, HTTP 408, 429, and 5xx responses are retried with exponential backoff and jitter. The SDK observes <code>Retry-After</code>. If the requested wait exceeds 30 seconds it returns the error to the caller. On an atomic HTTP 400 or 413 batch rejection, it splits the batch to isolate the failing events.</p>
+<p>The queue lives in memory. On tab hide or page exit, the SDK attempts a keepalive flush. Tab termination, process crashes, browser keepalive limits, or exhausted retries can prevent delivery. For business-critical records, persist the event and its ID in your application&#39;s outbox and replay it from there.</p>
+<h2 id="configuration">Configuration</h2>
+<div class="table-scroller"><table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Default</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>host</code></td>
+<td>required</td>
+<td>Absolute HTTP(S) collector URL, optionally with a reverse-proxy prefix. Use an address reachable from the sending device.</td>
+</tr>
+<tr>
+<td><code>writeKey</code></td>
+<td>required</td>
+<td>Project write key from Setup.</td>
+</tr>
+<tr>
+<td><code>batchSize</code></td>
+<td>20</td>
+<td>Send when this many events are queued. Range 1–100. Requests are also capped at 48 KiB.</td>
+</tr>
+<tr>
+<td><code>flushIntervalMs</code></td>
+<td>150</td>
+<td>Maximum batching delay when idle. Range 0–60,000 ms.</td>
+</tr>
+<tr>
+<td><code>maxQueueSize</code></td>
+<td>1,000</td>
+<td>Maximum outstanding events, including in-flight events. Range 1–100,000.</td>
+</tr>
+<tr>
+<td><code>timeoutMs</code></td>
+<td>5,000</td>
+<td>Per-attempt deadline through response-body consumption. Range 1–120,000 ms.</td>
+</tr>
+<tr>
+<td><code>maxRetries</code></td>
+<td>2</td>
+<td>Additional attempts per transient failure. Range 0–5.</td>
+</tr>
+<tr>
+<td><code>fetch</code></td>
+<td>runtime fetch</td>
+<td>Custom Fetch-compatible implementation. It must respect the supplied AbortSignal.</td>
+</tr>
+<tr>
+<td><code>onError</code></td>
+<td>unset</td>
+<td>Optional observer for capture failures.</td>
+</tr>
+<tr>
+<td><code>persistence</code></td>
+<td><code>&quot;localStorage&quot;</code></td>
+<td>Browser identity only. Set to <code>&quot;memory&quot;</code> for page-lifetime identity.</td>
+</tr>
+</tbody></table></div>
+<h2 id="develop-from-the-source-release">Develop from the source release</h2>
+<p>Inside <code>sdk/</code>, run <code>npm ci</code> and <code>npm test</code> to build both module formats and run the type and behavior tests. Run <code>npm run test:integration</code> to exercise a real Python collector with a temporary database. Set <code>PYTHON</code> to select a Python interpreter.</p>
+<p>Run <code>npm run sync</code> after SDK changes to regenerate the hosted script and installable archive. The Python server can serve these immediately. Rebuild the dashboard from <code>ui/</code> after editing setup-page code.</p>
+</article></main><footer><div class="wrap footer"><a class="wordmark" href="/"><img src="/assets/mark.svg" height="27" width="27" alt="">Birdwatch</a><div><a href="/docs.html">Docs</a><a href="/sdk.html">JS SDK guide</a><a href="/native.html">Mobile &amp; Exact</a><a href="/downloads/LICENSE.txt">MIT license</a></div></div></footer></body></html>

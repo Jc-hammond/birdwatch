@@ -1,0 +1,25 @@
+plugins {
+    id 'com.android.library' version '8.7.3'
+}
+
+group = 'dev.birdwatch'
+version = '0.2.0'
+
+android {
+    namespace 'dev.birdwatch.sdk'
+    compileSdk 35
+
+    defaultConfig {
+        minSdk 24
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+}

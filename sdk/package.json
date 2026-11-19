@@ -1,0 +1,43 @@
+{
+  "name": "@birdwatch/sdk",
+  "version": "0.1.0",
+  "description": "Typed, dependency-free event capture for self-hosted Birdwatch.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/types/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/types-cjs/index.d.ts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist",
+    "src",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "npm run build && tsc --project test/tsconfig.json && node --test test/*.test.mjs",
+    "sync": "npm run build && node scripts/sync.mjs",
+    "test:integration": "node --test test/collector.mjs"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "esbuild": "0.28.1"
+  }
+}

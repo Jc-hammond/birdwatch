@@ -1,0 +1,13 @@
+services:
+  birdwatch:
+    build: .
+    ports:
+      - "127.0.0.1:8123:8123"
+    environment:
+      BIRDWATCH_PASSWORD: "${BIRDWATCH_PASSWORD:?Set BIRDWATCH_PASSWORD to your dashboard password}"
+    volumes:
+      - events:/data
+    restart: unless-stopped
+
+volumes:
+  events:

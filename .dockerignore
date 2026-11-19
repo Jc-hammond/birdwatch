@@ -1,0 +1,8 @@
+*
+!server.py
+!birdwatch/
+!birdwatch/*.py
+!static/
+!static/**
+!LICENSE
+!THIRD_PARTY_NOTICES.txt

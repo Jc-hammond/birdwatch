@@ -1,0 +1,34 @@
+shape Time
+  epochAtZero: number
+  utcOffset: number
+
+shape Saved
+  id: string
+
+shape Receipt
+  accepted: number
+  duplicates: number
+
+component App
+  resource time = exactTime() as shape Time
+  mutation saved as shape Saved then sync
+  mutation delivery as shape Receipt
+  action complete
+    send saved = recordCompletion("demo-user", "demo-user:onboarding-v1", time.epochAtZero + performanceNow())
+  action sync
+    if not pending(delivery)
+      send delivery = replay()
+  task launch mount
+    after(1, sync)
+  task reconnect mount
+    every(10000, sync)
+  view
+    column
+      button press=complete disabled=pending(saved) testId="record"
+        text "Record completion"
+      if match failure(saved) { case some(f) => true, case none => false }
+        text "Could not save this event."
+      else if match saved { case some(r) => true, case none => false }
+        text "Saved on this device" testId="saved"
+      if match delivery { case some(r) => r.accepted + r.duplicates > 0, case none => false }
+        text "Completion delivered" testId="received"

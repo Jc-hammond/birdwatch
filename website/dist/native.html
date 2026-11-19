@@ -1,0 +1,126 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mobile and Exact SDKs · Birdwatch</title><meta name="description" content="Connect Android, React Native, Expo Exact, and Swift apps to your self-hosted Birdwatch collector."><link rel="icon" href="/assets/mark.svg"><link rel="stylesheet" href="/style.css"></head><body><a class="skip" href="#main">Skip to content</a><header class="mast"><div class="wrap mast-inner"><a class="wordmark" href="/" aria-label="Birdwatch home"><img src="/assets/mark.svg" height="34" width="34" alt="">Birdwatch</a><nav aria-label="Main"><a href="/#demo">Product</a><a href="/#developers">Developers</a><a href="/docs.html">Docs</a></nav><a class="button ink nav-cta" href="/downloads/birdwatch-source.zip" download>Get Birdwatch <span aria-hidden="true">↗</span></a></div></header><main id="main" class="wrap doc-layout"><nav class="doc-menu" aria-label="Documentation"><small>Documentation</small><a href="/docs.html">Local setup</a><a href="/sdk.html">JavaScript SDK</a><a href="/native.html" aria-current="page">Mobile &amp; Exact</a><div class="toc"><a href="#react-native">React Native</a><a href="#exact">Expo Exact</a><a href="#swift">Swift</a><a href="#android">Android</a></div></nav><article class="prose"><h1>Mobile and Exact SDKs</h1><p>Send events from your app to your own Birdwatch collector. Copy the project write key from Setup and use a collector address your device can reach.</p><section aria-labelledby="react-native"><h2 id="react-native">React Native</h2><a class="button orange" href="/downloads/birdwatch-react-native-0.2.0.tgz" download>Download React Native SDK ↓</a><p>Install the tarball and AsyncStorage 2.x. In Expo projects the following commands install the matching storage and UUID helpers.</p>
+<pre><code class="language-sh">npx expo install expo-crypto @react-native-async-storage/async-storage
+npm install ./birdwatch-react-native-0.2.0.tgz
+</code></pre>
+<pre><code class="language-ts">import { createReactNativeClient } from &quot;@birdwatch/react-native&quot;;
+import { randomUUID } from &quot;expo-crypto&quot;;
+
+type Events = { checkout_completed: { orderId: string; total: number } };
+const analytics = await createReactNativeClient&lt;Events&gt;({
+  host: &quot;https://analytics.example.com&quot;, writeKey: &quot;YOUR_PROJECT_WRITE_KEY&quot;, randomUUID,
+});
+
+await analytics.identify(&quot;user-42&quot;);
+const { id } = await analytics.enqueue(&quot;checkout_completed&quot;,
+  { orderId: &quot;order-123&quot;, total: 54 }, { id: &quot;checkout:order-123&quot; });
+// The checkout is saved locally. Navigation can continue while delivery is pending.
+await analytics.reset(); // Queued events retain the identity used at capture.
+</code></pre>
+<p>Create one client per project at app startup and retain it while collection is enabled. React Native uses AsyncStorage by default. You can supply an adapter with async <code>getItem</code> and <code>setItem</code>. Pass <code>storage: null</code> for an ephemeral client. A secure <code>randomUUID</code> option is required on hosts without <code>crypto.randomUUID</code>.</p>
+<p><code>enqueue</code> resolves with the event ID after a local commit. <code>capture</code> and <code>screen</code> also save before sending and resolve with a collector receipt. A transient delivery error can reject those calls while the event remains queued. Pass a stable occurrence ID when retrying an application action. For explicit screen tracking, call <code>await analytics.screen(&quot;Checkout&quot;)</code>.</p>
+<p>The client replays pending events on launch and AppState transitions. While it can execute, a retry timer backs off to one minute. If your app already observes connectivity, pass <code>subscribeConnectivity: listener =&gt; NetInfo.addEventListener(state =&gt; listener(state.isInternetReachable === true))</code> to wake it immediately. Terminating the app preserves its queue. Reopening it resumes delivery.</p>
+<p><code>flush()</code> attempts delivery of outstanding events. <code>shutdown()</code> removes listeners and attempts a final drain. A failed drain preserves pending events. HTTP 400 and 413 for an individual event are terminal input errors. Authentication failures leave queued events available for retry with the same project configuration. Use <code>onError</code> to observe failed transport attempts.</p>
+<p>Each collector and write key has a separate queue. Its default capacity is 1,000 events with a 1 MiB serialized limit. New writes reject on overflow or storage failure. Earlier entries stay in place. <code>maxQueueSize</code>, <code>batchSize</code>, <code>flushIntervalMs</code>, <code>maxRetries</code>, and <code>timeoutMs</code> tune delivery.</p>
+</section><section aria-labelledby="exact"><h2 id="exact">Expo Exact</h2><a class="button orange" href="/downloads/birdwatch-exact-0.2.0.tgz" download>Download Expo Exact SDK ↓</a><p>Install the release tarball beside your Exact app’s package.json.</p>
+<pre><code class="language-sh">npm install ./birdwatch-exact-0.2.0.tgz
+</code></pre>
+<p>The included <code>example/</code> contains an app manifest, Contract view, and TypeScript answers. Copy the three files into your Exact app and replace the host and write key. The example grants access to the collector origin and one SQLite file. Pressing <strong>Record completion</strong> commits an event to the device. A launch task, a post-save action and a ten-second Contract task invoke replay while the app is running.</p>
+<pre><code class="language-ts">import { createExactClient } from &quot;@birdwatch/exact&quot;;
+import type { Sources } from &quot;./app.contract.d.ts&quot;;
+
+const host = &quot;https://analytics.example.com&quot;;
+export const grants = `net.fetch ${host}\nsqlite.open app:/data/birdwatch.sqlite`;
+const analytics = createExactClient({ host, writeKey: &quot;YOUR_PROJECT_WRITE_KEY&quot;, fetch });
+
+const sources: Sources = {
+  recordCompletion: ([distinctId, id, at], _store, storage) =&gt;
+    analytics.enqueue({
+      id, distinctId, event: &quot;onboarding_completed&quot;,
+      timestamp: new Date(at).toISOString(),
+    }, storage.sqlite),
+  replay: (_args, _store, storage) =&gt; analytics.flush(storage.sqlite),
+};
+</code></pre>
+<p>Pass the action’s occurrence time from Contract to the data answer. The sample uses <code>time.epochAtZero + performanceNow()</code>. <code>enqueue</code> takes a stable occurrence ID and returns <code>{ id }</code> once SQLite commits. Retrying the same pending ID preserves its first payload. Each collector and write key has a separate 1,000-event limit. Overflow and local storage failure reject the enqueue.</p>
+<p><code>flush</code> sends up to 100 pending events per call. Successful and duplicate acknowledgements remove their corresponding rows. A transport error retains the row. A definitive HTTP 400 or 413 retires the individual rejected event and surfaces the error. Call replay from your host&#39;s tasks on launch and periodically to resume after reconnection. The database survives a process restart.</p>
+<p>The direct APIs remain available. <code>capture</code> sends one event and <code>captureBatch</code> sends 1–100 events in one request. They return collector counts and use the collector clock when no timestamp is supplied. Use <code>enqueue</code> for durable offline collection.</p>
+<p>The example targets <a href="https://github.com/expo/exact/tree/bb3c00b957ce6d547665ec8f4b79cfe2def72b08">Expo Exact at bb3c00b</a>.</p>
+</section><section aria-labelledby="swift"><h2 id="swift">Swift</h2><a class="button orange" href="/downloads/birdwatch-swift-0.2.0.zip" download>Download Swift SDK ↓</a><p>Unzip <code>birdwatch-swift-0.2.0.zip</code>. In Xcode, choose <strong>File → Add Package Dependencies → Add Local</strong>, select the folder containing <code>Package.swift</code>, and add the <strong>Birdwatch</strong> product to your target. In SwiftPM, use <code>.package(path: &quot;../Birdwatch&quot;)</code> and add <code>.product(name: &quot;Birdwatch&quot;, package: &quot;Birdwatch&quot;)</code> to your target.</p>
+<pre><code class="language-swift">import Foundation
+import Birdwatch
+
+let analytics = try BirdwatchClient(
+    host: URL(string: &quot;https://analytics.example.com&quot;)!,
+    writeKey: &quot;YOUR_PROJECT_WRITE_KEY&quot;
+)
+try await analytics.identify(&quot;user-42&quot;)
+let id = try await analytics.enqueue(&quot;checkout_completed&quot;,
+    properties: [&quot;orderId&quot;: &quot;order-123&quot;, &quot;total&quot;: 54], id: &quot;checkout:order-123&quot;)
+await analytics.reset()
+</code></pre>
+<p>Keep a client alive from app startup. <code>enqueue</code> returns the event ID after SQLite commits the original timestamp, identity and properties. It works offline. <code>capture</code> and <code>screen</code> also persist before sending and return a collector receipt. A transient failure can throw while the event stays queued. <code>flush()</code> explicitly attempts pending delivery. Use the same occurrence ID for application-level retries.</p>
+<p>On iOS 15+ and macOS 12+, the client automatically drains at startup, when Network.framework reports a usable path, and on a retry timer while the process can execute. A device that reconnects while the app is terminated syncs on its next launch. The collector treats an already accepted ID as a successful duplicate acknowledgement.</p>
+<p>The default database lives in Application Support/Birdwatch and is excluded from backup. Queues and identities are scoped to the collector and project write key. Identity changes affect subsequent events. Set <code>persistence: .memory</code> to keep both ephemeral, or pass an <code>outboxURL</code> to explicitly select a disk database. Each project holds up to <code>maxQueueSize</code> pending events (default 1,000). Full queues and write failures throw without evicting older events.</p>
+<p>Per-request retries reuse the encoded body. Configure <code>timeout</code> in seconds and <code>maxRetries</code> for transient failures. HTTP 400 and 413 retire a rejected event. Other unsuccessful responses preserve it. An acknowledged event is removed only after the local deletion commits. A device must be able to reach its configured collector URL.</p>
+<p>Run <code>swift test</code> from the package directory. Set <code>BIRDWATCH_TEST_HOST</code> and <code>BIRDWATCH_TEST_KEY</code> to exercise a live collector as well.</p>
+</section><section aria-labelledby="android"><h2 id="android">Android</h2><a class="button orange" href="/downloads/birdwatch-android-0.2.0.aar" download>Download Android SDK</a><p>The native Android SDK works from Kotlin and Java on Android 7.0 (API 24) and later. It uses Android’s SQLite, networking, and connectivity APIs and has no third-party runtime dependencies.</p>
+<p>Save <code>birdwatch-android-0.2.0.aar</code> in your app module’s <code>libs/</code> folder. Add it to <code>app/build.gradle.kts</code> and sync Gradle.</p>
+<pre><code class="language-kotlin">dependencies {
+    implementation(files(&quot;libs/birdwatch-android-0.2.0.aar&quot;))
+}
+</code></pre>
+<p>Create one client per project at application startup. Use the write key from Birdwatch <strong>Setup</strong> and an HTTPS collector URL your device can reach.</p>
+<pre><code class="language-kotlin">import dev.birdwatch.sdk.Birdwatch
+import dev.birdwatch.sdk.Event
+
+val analytics = Birdwatch.open(applicationContext, &quot;https://analytics.example.com&quot;, writeKey)
+
+// Call after sign-in. SDK operations submitted to this client run in order.
+analytics.identify(&quot;user-42&quot;)
+val checkout = Event(&quot;checkout_completed&quot;, mapOf(&quot;orderId&quot; to &quot;order-123&quot;, &quot;total&quot; to 54), &quot;checkout:order-123&quot;)
+analytics.enqueue(checkout).whenComplete { eventId, error -&gt;
+    if (error != null) android.util.Log.e(&quot;Analytics&quot;, &quot;Could not save checkout&quot;, error)
+}
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Completion</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>enqueue(event)</code></td>
+<td>The event ID after the local SQLite transaction commits, including offline.</td>
+</tr>
+<tr>
+<td><code>capture(event)</code></td>
+<td>A collector receipt with <code>id</code>, <code>accepted</code>, and <code>duplicates</code>. The SDK saves the event before sending.</td>
+</tr>
+<tr>
+<td><code>screen(name)</code></td>
+<td>A collector receipt for a <code>screen_view</code> event.</td>
+</tr>
+<tr>
+<td><code>identify(person)</code>, <code>reset()</code>, <code>distinctId()</code></td>
+<td>Set, rotate, or read the project’s persistent identity. Earlier events keep their original identity.</td>
+</tr>
+<tr>
+<td><code>flush()</code></td>
+<td>Delivery of the events outstanding when the flush reaches the local queue. A failed request completes the future exceptionally.</td>
+</tr>
+<tr>
+<td><code>close()</code></td>
+<td>Stop work and release the client’s resources. Committed events remain available on the next open.</td>
+</tr>
+</tbody></table>
+<p>Methods that return a <code>CompletableFuture</code> work from Java as well. The SDK owns its storage and networking threads. To use collector receipts from Java:</p>
+<pre><code class="language-java">analytics.capture(&quot;search&quot;, Collections.singletonMap(&quot;results&quot;, 3))
+    .thenAccept(receipt -&gt; Log.d(&quot;Analytics&quot;, &quot;Acknowledged &quot; + receipt.getId()));
+</code></pre>
+<p>Use asynchronous callbacks or your app’s coroutine integration for futures. Move UI updates onto the main thread. An <code>Event</code> snapshots its JSON properties and timestamp when constructed. Supply the same ID for application-level retries of one action, or let the SDK generate a UUID. To import an earlier occurrence, use <code>Event(name, properties, id, timestampMillis)</code>. Properties can contain JSON primitives, string-keyed maps, lists, arrays, and null.</p>
+<p><strong>Offline delivery.</strong> The outbox lives in the app’s no-backup directory. Opening the client, a network availability callback, and a retry timer all trigger replay. If connectivity returns while the process is stopped, opening the client on its next launch resumes delivery. A lost acknowledgement can produce a second request with the same ID. Birdwatch records the occurrence once. HTTP 400 and 413 retire an invalid event. Failed authentication, transient responses, and malformed acknowledgements retain the event. The SDK honors Retry-After on 429 and 503.</p>
+<p>Queue capacity defaults to 1,000 events per collector and write key. A full queue or storage failure rejects the new write and preserves existing entries. Configure <code>Birdwatch.Builder(context, host, writeKey)</code> with <code>maxQueueSize</code>, <code>timeoutMillis</code> (default 5,000), and <code>onError</code> to observe replay failures and rejected events.</p>
+<p><strong>Local development.</strong> Use <code>http://10.0.2.2:8123</code> to reach a host-machine collector from the standard Android Emulator. If Android blocks cleartext HTTP, configure your debug build to allow it for the development endpoint. Use a device-reachable HTTPS address for deployed apps. The AAR declares the normal <code>INTERNET</code> and <code>ACCESS_NETWORK_STATE</code> permissions.</p>
+<p><strong>Build from source.</strong> In the source release, open <code>sdks/android/</code> in Android Studio, or run <code>./gradlew assembleRelease</code> there with JDK 17 and Android SDK Platform 35 installed. The AAR is written to <code>build/outputs/aar/</code>. Run <code>./gradlew connectedDebugAndroidTest</code> with an emulator or test device connected. The SDK uses the Birdwatch MIT license. The Gradle wrapper’s license and notices are in <code>gradle/wrapper/</code>.</p>
+</section></article></main><footer><div class="wrap footer"><a class="wordmark" href="/"><img src="/assets/mark.svg" height="27" width="27" alt="">Birdwatch</a><div><a href="/docs.html">Docs</a><a href="/sdk.html">JS SDK guide</a><a href="/native.html">Mobile &amp; Exact</a><a href="/downloads/LICENSE.txt">MIT license</a></div></div></footer></body></html>
