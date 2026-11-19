@@ -1,6 +1,6 @@
 # Birdwatch for Expo Exact
 
-Install the release tarball beside your Exact app’s package.json.
+Download the Expo Exact SDK from **Setup**. Save the archive next to your Exact app’s `package.json` and install it.
 
 ```sh
 npm install ./birdwatch-exact-0.2.0.tgz
@@ -25,6 +25,8 @@ const sources: Sources = {
   replay: (_args, _store, storage) => analytics.flush(storage.sqlite),
 };
 ```
+
+## Save and send events
 
 Pass the action’s occurrence time from Contract to the data answer. The sample uses `time.epochAtZero + performanceNow()`. `enqueue` takes a stable occurrence ID and returns `{ id }` once SQLite commits. Retrying the same pending ID preserves its first payload. Each collector and write key has a separate 1,000-event limit. Overflow and local storage failure reject the enqueue.
 

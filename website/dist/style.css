@@ -923,7 +923,8 @@ footer {
 .prose .button {
   margin: 9px 0;
 }
-.prose ul {
+.prose ul,
+.prose ol {
   padding-left: 22px;
 }
 .prose li + li {

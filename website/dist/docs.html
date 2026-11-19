@@ -1,43 +1,81 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Run Birdwatch locally · Birdwatch</title><meta name="description" content="Set up self-hosted Birdwatch analytics, capture your first event, and explore your own data."><link rel="icon" href="/assets/mark.svg"><link rel="stylesheet" href="/style.css"></head><body><a class="skip" href="#main">Skip to content</a><header class="mast"><div class="wrap mast-inner"><a class="wordmark" href="/" aria-label="Birdwatch home"><img src="/assets/mark.svg" height="34" width="34" alt="">Birdwatch</a><nav aria-label="Main"><a href="/#demo">Product</a><a href="/#developers">Developers</a><a href="/docs.html">Docs</a><a href="https://github.com/Jc-hammond/birdwatch">GitHub</a></nav><a class="button ink nav-cta" href="/downloads/birdwatch-source.zip" download>Get Birdwatch <span aria-hidden="true">↗</span></a></div></header><main id="main" class="wrap doc-layout"><nav class="doc-menu" aria-label="Documentation"><small>Documentation</small><a aria-current="page" href="/docs.html">Local setup</a><a href="/sdk.html">SDK guide</a><a href="/native.html">Mobile &amp; Exact</a><div class="toc"><a href="#run-locally">Run locally</a><a href="#capture-events">Capture events</a><a href="#read-the-reports">Read the reports</a><a href="#docker-compose">Docker Compose</a><a href="#hosting-and-storage">Hosting and storage</a><a href="#develop">Develop</a></div></nav><article class="prose"><h1>Run Birdwatch locally</h1><a class="button orange" href="/downloads/birdwatch-source.zip" download>Download Birdwatch ↓</a><p>Birdwatch is an MIT-licensed, self-hosted product analytics app. Capture events from a website or a backend, inspect individual visitor histories, and measure conversion between two actions. A single Python process serves the dashboard, the browser client, and the HTTP API. SQLite stores the data locally.</p>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Run Birdwatch locally · Birdwatch</title><meta name="description" content="Set up self-hosted Birdwatch analytics, capture your first event, and explore your own data."><link rel="icon" href="/assets/mark.svg"><link rel="stylesheet" href="/style.css"></head><body><a class="skip" href="#main">Skip to content</a><header class="mast"><div class="wrap mast-inner"><a class="wordmark" href="/" aria-label="Birdwatch home"><img src="/assets/mark.svg" height="34" width="34" alt="">Birdwatch</a><nav aria-label="Main"><a href="/#demo">Demo</a><a href="/#developers">Developers</a><a href="/docs.html">Docs</a><a href="https://github.com/Jc-hammond/birdwatch">GitHub</a></nav><a class="button ink nav-cta" href="/downloads/birdwatch-source.zip" download>Download</a></div></header><main id="main" class="wrap doc-layout"><nav class="doc-menu" aria-label="Documentation"><small>Documentation</small><a aria-current="page" href="/docs.html">Local setup</a><a href="/sdk.html">JavaScript SDK</a><a href="/native.html">Mobile &amp; Exact</a><div class="toc"><a href="#run-locally">Run locally</a><a href="#capture-events">Capture events</a><a href="#read-the-reports">Read the reports</a><a href="#docker-compose">Docker Compose</a><a href="#hosting-and-storage">Hosting and storage</a><a href="#develop">Develop</a></div></nav><article class="prose"><h1>Run Birdwatch locally</h1><a class="button orange" href="/downloads/birdwatch-source.zip" download>Download Birdwatch</a>
+<p>Birdwatch is open-source product analytics you run on your own server. Track actions like sign-ups and checkouts, inspect the events behind a user’s activity, and see how many people go from one action to the next.</p>
+<p>One Python process serves the dashboard, browser script, and HTTP API. Events live in a SQLite database on your machine or server.</p>
 <h2 id="run-locally">Run locally</h2>
-<p>Unpack the distribution, open a terminal in the <code>birdwatch</code> directory, and run the following with Python 3.9+ and SQLite 3.25+.</p>
+<p>Download and unzip Birdwatch, or clone the repository. From the project directory, run this command with Python 3.9+ and SQLite 3.25+.</p>
 <pre><code class="language-sh">python3 server.py
 </code></pre>
-<p>Open <code>http://127.0.0.1:8123</code>. The distribution includes the compiled React dashboard, so Python is the only runtime dependency. No cloud account, external font, CDN, or telemetry service is involved.</p>
-<p>On first launch the <strong>Demo project</strong> contains a frozen, read-only sample. Choose <strong>Connect source → Create project</strong> to collect your own events. The <strong>Setup</strong> page generates integration snippets with your project&#39;s write key. Use <strong>Send test event</strong> to write one event, then <strong>View events</strong> to inspect it.</p>
-<p>For a fresh database that starts with one empty project, run <code>python3 server.py --no-demo</code>. Existing databases keep their projects across restarts. The default database is <code>data/birdwatch.sqlite3</code>, relative to <code>server.py</code>. Stop with Ctrl-C and use the same command to restart.</p>
+<p>Open <a href="http://127.0.0.1:8123">Birdwatch on localhost</a>. The dashboard comes prebuilt.</p>
+<ol>
+<li>Explore the read-only demo project, then select <strong>Connect source</strong> → <strong>Create project</strong>.</li>
+<li>On <strong>Setup</strong>, select <strong>Send test event</strong> to check that the server can receive events.</li>
+<li>Select <strong>View events</strong> to find the <code>source_connected</code> event. Return to <strong>Setup</strong> for a code example with your project’s write key.</li>
+</ol>
+<p>Birdwatch saves data to <code>data/birdwatch.sqlite3</code> by default. To start with one empty project, pass <code>--no-demo</code> when initializing a new database.</p>
 <h2 id="capture-events">Capture events</h2>
-<p>The <a href="/sdk.html">Birdwatch JavaScript and TypeScript SDK</a> supports browsers and Node.js 20+, with typed event catalogs, bounded batching, idempotent retries, and safe shutdown. Open <strong>Setup → Browser SDK</strong> or <strong>Node.js</strong> in your project to download the installable package and copy a configured example.</p>
-<p>For React Native, Expo Exact, Swift, or Android, choose the matching tab in <strong>Setup</strong>. Offline events can be committed on-device with <code>enqueue</code> and replayed after a restart. Each tab includes a local package download and a project-specific example. See the <a href="/native.html">mobile and Exact SDK guide</a>.</p>
-<p>Paste the script from <strong>Setup → Script tag</strong> into the page you want to measure. It uses local storage for a per-project anonymous identity. The optional <code>data-pageview=&quot;true&quot;</code> attribute sends one <code>page_view</code> per full page load, with only the URL path. In a single-page app, capture additional page views when your router changes pages.</p>
+<div class="table-scroller"><table>
+<thead>
+<tr>
+<th>Where events come from</th>
+<th>Where to start</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Website with a script tag</td>
+<td><strong>Setup</strong> → <strong>Script tag</strong></td>
+</tr>
+<tr>
+<td>Browser app or Node.js 20+</td>
+<td><a href="/sdk.html">JavaScript and TypeScript SDK</a></td>
+</tr>
+<tr>
+<td>React Native, Expo Exact, Swift, or Android</td>
+<td><a href="/native.html">Mobile and Exact SDKs</a></td>
+</tr>
+<tr>
+<td>Backend or another runtime</td>
+<td><strong>Setup</strong> → <strong>HTTP API</strong></td>
+</tr>
+</tbody></table></div>
+<h3 id="website-script">Website script</h3>
+<p>Copy the snippet from <strong>Setup</strong> into each page you want to track. Use a Birdwatch URL reachable from the visitor’s browser.</p>
 <pre><code class="language-html">&lt;script src=&quot;http://127.0.0.1:8123/birdwatch.js&quot;
         data-key=&quot;YOUR_PROJECT_WRITE_KEY&quot; data-pageview=&quot;true&quot;&gt;&lt;/script&gt;
 </code></pre>
-<p>After the script loads, identify a signed-in user and send an event. Identification applies to future events. Call <code>birdwatch.reset()</code> at logout to start a new anonymous identity.</p>
+<p>With <code>data-pageview=&quot;true&quot;</code>, the script records the URL path once per full page load. In a single-page app, call <code>birdwatch.page()</code> after a route change. The script keeps an anonymous ID in local storage for each project.</p>
+<p>Call <code>identify()</code> after sign-in to associate future events with your app’s user ID. Call <code>reset()</code> at sign-out to start a new anonymous identity.</p>
 <pre><code class="language-js">birdwatch.identify(&quot;user_42&quot;);
 await birdwatch.capture(&quot;sign_up&quot;, { plan: &quot;free&quot; });
 </code></pre>
-<p>Server applications can use the HTTP API directly.</p>
+<h3 id="http-api">HTTP API</h3>
+<p>Send a JSON request to <code>POST /api/capture</code>. Use a stable <code>distinct_id</code> to group events from the same person.</p>
 <pre><code class="language-sh">curl http://127.0.0.1:8123/api/capture \
-  -H &#39;Content-Type: application/json&#39; \
-  -d &#39;{&quot;api_key&quot;:&quot;YOUR_PROJECT_WRITE_KEY&quot;,&quot;event&quot;:&quot;sign_up&quot;,&quot;distinct_id&quot;:&quot;user_42&quot;,&quot;properties&quot;:{&quot;plan&quot;:&quot;free&quot;},&quot;uuid&quot;:&quot;signup-user42-1&quot;}&#39;
+  -H &#x27;Content-Type: application/json&#x27; \
+  -d &#x27;{
+    &quot;api_key&quot;: &quot;YOUR_PROJECT_WRITE_KEY&quot;,
+    &quot;event&quot;: &quot;sign_up&quot;,
+    &quot;distinct_id&quot;: &quot;user_42&quot;,
+    &quot;properties&quot;: {&quot;plan&quot;: &quot;free&quot;},
+    &quot;uuid&quot;: &quot;signup-user42-1&quot;
+  }&#x27;
 </code></pre>
-<p>A successful response returns <code>{&quot;accepted&quot;:1,&quot;duplicates&quot;:0}</code>. An optional <code>uuid</code> makes retries idempotent within a project. An optional <code>timestamp</code> must be ISO 8601 with a time zone. It defaults to server receipt time. The browser client returns a promise for the server response. It does not queue events offline.</p>
-<p>For up to 100 events in one transaction, send <code>{&quot;api_key&quot;:&quot;YOUR_PROJECT_WRITE_KEY&quot;,&quot;batch&quot;:[...]}</code> with the event objects in the array. Invalid items reject the entire batch. Each request is limited to 1 MiB and each event&#39;s JSON-encoded properties to 32 KiB.</p>
+<p>A new event returns <code>{&quot;accepted&quot;:1,&quot;duplicates&quot;:0}</code>. Reuse the same optional <code>uuid</code> when retrying that event so Birdwatch counts it once. The optional <code>timestamp</code> accepts ISO 8601 with a time zone and defaults to when the server receives the event.</p>
+<p>To send up to 100 events in one request, use a top-level <code>api_key</code> and a <code>batch</code> array of event objects. If any item is invalid, Birdwatch rejects the whole batch. The request limit is 1 MiB and the JSON-encoded properties limit is 32 KiB per event.</p>
 <h2 id="read-the-reports">Read the reports</h2>
 <ul>
-<li><strong>Overview</strong> shows event counts, distinct active IDs, page views, and events per active ID. Both <code>page_view</code> and <code>$pageview</code> count as page views. Hover or keyboard-focus a bar group to inspect a day. Select a top event to open its filtered stream.</li>
-<li><strong>Events</strong> lets you search event names or people, inspect timestamps and JSON properties, and filter by a specific event or person.</li>
-<li><strong>People</strong> lists distinct IDs, event counts, and first and last activity within the selected period. Select a person to see their event history.</li>
-<li><strong>Funnels</strong> counts distinct people who completed event B after event A in the selected time range. The same event can be both steps if it occurs twice. Ties use insertion order. Each person counts once per step.</li>
+<li><strong>Overview</strong> shows event counts, active users, page views, and events per user. Select a top event to see its matching rows. Hover over a day’s bars or focus them with the keyboard to see its counts.</li>
+<li><strong>Events</strong> lets you search by event name or person ID and open an event to see its timestamp and properties.</li>
+<li><strong>People</strong> lists the IDs active in the selected period, along with their event counts and first and last activity. Select an ID to see its events.</li>
+<li><strong>Funnels</strong> shows how many people complete a second event after the first within the selected period. Each ID counts once per step. You can select the same event for both steps to measure repeat use. Events with matching timestamps use insertion order.</li>
 </ul>
-<p>Reports use UTC calendar days and include today through the current moment. Overview compares the selected period with the same elapsed span starting one period earlier. A dash means the previous value was zero. Active projects refresh live views every five seconds. Historical event pages stay still while you inspect them. The sample project uses its frozen clock.</p>
+<p>Reports use UTC calendar days. Overview compares the selected period with the same elapsed span one period earlier. A dash marks a previous value of zero. Each distinct ID counts as one active user, and both <code>page_view</code> and <code>$pageview</code> count as page views. Live reports refresh every five seconds. Older pages in the Events list stay fixed while you browse. The demo uses a fixed date.</p>
 <h2 id="docker-compose">Docker Compose</h2>
-<p>With Docker and its Compose plugin installed, set a password and start the service from the project directory.</p>
+<p>With Docker and its Compose plugin installed, run these commands from the project directory.</p>
 <pre><code class="language-sh">export BIRDWATCH_PASSWORD=&quot;$(openssl rand -hex 24)&quot;
 docker compose up --build -d
 </code></pre>
-<p>Open <code>http://127.0.0.1:8123</code> and sign in as <code>admin</code> with the value of <code>BIRDWATCH_PASSWORD</code>. Retrieve it in the same shell with <code>printenv BIRDWATCH_PASSWORD</code>. Save it for subsequent Compose commands, or supply it through a local <code>.env</code> file. Compose binds the published port to loopback and persists SQLite in the named <code>events</code> volume. Run <code>docker compose down</code> to stop it while keeping its data. The native server and Compose use separate databases and need different ports to run simultaneously.</p>
+<p>Open <a href="http://127.0.0.1:8123">Birdwatch on localhost</a> and sign in as <code>admin</code> with the password you set. Run <code>printenv BIRDWATCH_PASSWORD</code> in the same shell to retrieve it. Keep the variable set for future Compose commands or save it in a local <code>.env</code> file.</p>
+<p>Compose binds the published port to loopback and stores the database in the <code>events</code> volume. Use <code>docker compose down</code> to stop the service and keep its data. If you also run the Python server directly, give the two instances different ports. Each uses its own database by default.</p>
 <h2 id="hosting-and-storage">Hosting and storage</h2>
 <div class="table-scroller"><table>
 <thead>
@@ -50,7 +88,7 @@ docker compose up --build -d
 <tbody><tr>
 <td><code>BIRDWATCH_HOST</code> or <code>--host</code></td>
 <td><code>127.0.0.1</code></td>
-<td>HTTP bind address (IPv4)</td>
+<td>IPv4 address to listen on</td>
 </tr>
 <tr>
 <td><code>BIRDWATCH_PORT</code> or <code>--port</code></td>
@@ -60,7 +98,7 @@ docker compose up --build -d
 <tr>
 <td><code>BIRDWATCH_DB</code> or <code>--db</code></td>
 <td><code>data/birdwatch.sqlite3</code></td>
-<td>Database path</td>
+<td>Database path, relative to <code>server.py</code> by default</td>
 </tr>
 <tr>
 <td><code>BIRDWATCH_PASSWORD</code></td>
@@ -68,20 +106,19 @@ docker compose up --build -d
 <td>HTTP Basic password for the dashboard user <code>admin</code></td>
 </tr>
 </tbody></table></div>
-<p>The loopback default allows local access without a password. Set a dashboard password before binding to a network interface or forwarding the service. For remote clients, terminate HTTPS at your reverse proxy, preserve the original Host header, and use the externally reachable HTTPS origin for the browser script. A localhost URL always refers to the visitor&#39;s own computer. If your site uses a Content Security Policy, allow the analytics origin in its script-src and connect-src directives.</p>
-<p>The project write key is intentionally public and grants ingestion only. A dashboard administrator can read every project. For a public collector, apply request and traffic limits at the reverse proxy. This release targets a trusted single-operator workspace on a single host. It covers product analytics, with session replay, feature flags, and team roles outside its scope.</p>
-<p>To back up an active database, use SQLite&#39;s online backup command. For Compose, run the equivalent Python backup from inside the container or stop the service before taking a volume snapshot.</p>
-<pre><code class="language-sh">sqlite3 data/birdwatch.sqlite3 &quot;.backup &#39;birdwatch-backup.sqlite3&#39;&quot;
+<p>Set a dashboard password before exposing Birdwatch to a network. Serve it over HTTPS through a reverse proxy and preserve the original <code>Host</code> header. Use the public HTTPS URL in your app’s integration. If your site uses Content Security Policy, allow the Birdwatch origin in <code>script-src</code> and <code>connect-src</code>.</p>
+<p>A project write key lets clients send events. The dashboard administrator can read every project. For a public capture endpoint, apply request and traffic limits at your reverse proxy. Birdwatch is designed for one operator on one host.</p>
+<p>Use SQLite’s online backup command to copy a running database. For Compose, make an online backup inside the container or stop the service before taking a volume snapshot.</p>
+<pre><code class="language-sh">sqlite3 data/birdwatch.sqlite3 &quot;.backup &#x27;birdwatch-backup.sqlite3&#x27;&quot;
 </code></pre>
 <h2 id="develop">Develop</h2>
-<p>The Python service uses only standard-library modules. The frontend sources are in <code>ui/src</code>, the tracker source and its build instructions are in <code>sdk/</code>, and deployable assets are in <code>static</code>. Rebuild the bundle after editing frontend files.</p>
+<p>The Python server uses the standard library. The React dashboard lives in <code>ui/src/</code>, the browser and Node.js SDK lives in <code>sdk/</code>, and the server serves the built dashboard from <code>static/</code>.</p>
+<p>To rebuild the dashboard and run the server tests, start in the project directory.</p>
 <pre><code class="language-sh">cd ui
 npm ci
 npm run build
 cd ..
 python3 -m unittest discover -s tests -v
-python3 server.py
 </code></pre>
-<p>The integration suite uses temporary databases and ephemeral loopback ports. It exercises event capture, batch rollback, retry deduplication, UTC boundaries, ordered funnels, project isolation, access control, and reporting after reopening the database.</p>
-<p>Birdwatch is released under the <a href="/downloads/LICENSE.txt">MIT license</a>. Third-party licenses for bundled dashboard code are included in <a href="/downloads/THIRD_PARTY_NOTICES.txt">THIRD_PARTY_NOTICES.txt</a>.</p>
-</article></main><footer><div class="wrap footer"><a class="wordmark" href="/"><img src="/assets/mark.svg" height="27" width="27" alt="">Birdwatch</a><div><a href="/docs.html">Docs</a><a href="/sdk.html">JS SDK guide</a><a href="/native.html">Mobile &amp; Exact</a><a href="/downloads/LICENSE.txt">MIT license</a></div></div></footer></body></html>
+<p>Birdwatch is available under the <a href="/downloads/LICENSE.txt">MIT license</a>. See <a href="/downloads/THIRD_PARTY_NOTICES.txt">third-party notices</a> for bundled dependencies.</p>
+</article></main><footer><div class="wrap footer"><a class="wordmark" href="/"><img src="/assets/mark.svg" height="27" width="27" alt="">Birdwatch</a><div><a href="/docs.html">Docs</a><a href="/sdk.html">JavaScript SDK</a><a href="/native.html">Mobile &amp; Exact</a><a href="/downloads/LICENSE.txt">MIT license</a></div></div></footer></body></html>

@@ -49,7 +49,7 @@ export function Explorer({ view, project, days, filters, go, inspect }) {
           <input
             aria-label={isPeople ? "Search people" : "Search events"}
             placeholder={
-              isPeople ? "Search by distinct ID…" : "Search events or people…"
+              isPeople ? "Search by user ID…" : "Search by event name or user ID…"
             }
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -74,12 +74,12 @@ export function Explorer({ view, project, days, filters, go, inspect }) {
               <tr>
                 {(isPeople
                   ? [
-                      "Distinct ID",
+                      "User ID",
                       "Events",
-                      "First seen in period",
-                      "Last seen",
+                      "First event",
+                      "Last event",
                     ]
-                  : ["Event", "Distinct ID", "Captured at", ""]
+                  : ["Event", "User ID", "Event time", ""]
                 ).map((name, i) => (
                   <th key={i}>{name}</th>
                 ))}
@@ -126,7 +126,7 @@ export function Explorer({ view, project, days, filters, go, inspect }) {
                     <td>
                       <button
                         className="icon-button"
-                        aria-label={"Inspect event " + row.id}
+                        aria-label={"View event " + row.id}
                         onClick={() => inspect(row)}
                       >
                         <ChevronRight size={15} />
@@ -141,8 +141,7 @@ export function Explorer({ view, project, days, filters, go, inspect }) {
       )}
       {rows?.length === 0 && (
         <Empty title={isPeople ? "No matching people" : "No matching events"}>
-          Try another date range or search, or connect a source to capture
-          activity.
+          Try a different date range or clear your search and filters.
         </Empty>
       )}
       {rows && (
@@ -212,8 +211,8 @@ export function Funnels({ project, days }) {
   if (!names.length)
     return (
       <section className="card">
-        <Empty title="Your funnel starts with an event">
-          Capture events in this project to choose the steps of a funnel.
+        <Empty title="No events to use in a funnel">
+          Send events to this project to start building a funnel.
         </Empty>
       </section>
     );
@@ -226,8 +225,7 @@ export function Funnels({ project, days }) {
       <header>
         <h2>Conversion funnel</h2>
         <p>
-          Count people who perform both events in order during the selected
-          period.
+          Choose the first event and the event that should follow it.
         </p>
       </header>
       <div className="steps">

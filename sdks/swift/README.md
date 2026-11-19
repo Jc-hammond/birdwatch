@@ -1,6 +1,6 @@
 # Birdwatch for Swift
 
-Unzip `birdwatch-swift-0.2.0.zip`. In Xcode, choose **File → Add Package Dependencies → Add Local**, select the folder containing `Package.swift`, and add the **Birdwatch** product to your target. In SwiftPM, use `.package(path: "../Birdwatch")` and add `.product(name: "Birdwatch", package: "Birdwatch")` to your target.
+Download and unzip the Swift SDK from **Setup**. In Xcode, choose **File → Add Package Dependencies → Add Local**, select the folder containing `Package.swift`, and add the **Birdwatch** product to your target. In SwiftPM, use `.package(path: "../Birdwatch")` and add `.product(name: "Birdwatch", package: "Birdwatch")` to your target.
 
 ```swift
 import Foundation
@@ -16,7 +16,11 @@ let id = try await analytics.enqueue("checkout_completed",
 await analytics.reset()
 ```
 
+## Save and send events
+
 Keep a client alive from app startup. `enqueue` returns the event ID after SQLite commits the original timestamp, identity and properties. It works offline. `capture` and `screen` also persist before sending and return a collector receipt. A transient failure can throw while the event stays queued. `flush()` explicitly attempts pending delivery. Use the same occurrence ID for application-level retries.
+
+## Delivery and retries
 
 On iOS 15+ and macOS 12+, the client automatically drains at startup, when Network.framework reports a usable path, and on a retry timer while the process can execute. A device that reconnects while the app is terminated syncs on its next launch. The collector treats an already accepted ID as a successful duplicate acknowledgement.
 

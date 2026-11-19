@@ -124,8 +124,7 @@ function Chart({ series }) {
     <section className="card chart-card">
       <header className="panel-header">
         <div>
-          <h2>Event activity</h2>
-          <p>Daily event volume</p>
+          <h2>Events by day</h2>
         </div>
         <div className="legend">
           {["Events", "Page views"].map((label, i) => (
@@ -249,8 +248,8 @@ export function Overview({ project, days, go, inspect }) {
               </button>
             ))
           ) : (
-            <Empty title="No events yet">
-              Connect a source to see event counts.
+            <Empty title="No events in this date range">
+              Try a different date range or send an event from Setup.
             </Empty>
           )}
         </section>
@@ -280,8 +279,8 @@ export function Overview({ project, days, go, inspect }) {
               </button>
             ))
           ) : (
-            <Empty title="Waiting for activity">
-              Incoming events appear here automatically.
+            <Empty title="No recent events">
+              New events will appear here as they arrive.
             </Empty>
           )}
         </section>

@@ -1,20 +1,20 @@
-# @birdwatch/sdk
+# Birdwatch SDK for JavaScript and TypeScript
 
-Capture events in browsers and Node.js 20+ and send them directly to your Birdwatch instance. The SDK includes TypeScript declarations, ES modules, CommonJS, and a standalone browser script. It has zero runtime dependencies.
+Use `@birdwatch/sdk` to send events from a browser or Node.js 20+ to your Birdwatch server. The package includes TypeScript types, ES modules, CommonJS, and a standalone browser script, with zero runtime dependencies.
 
 ## Install
 
-In Birdwatch, open a writable project's **Setup** page, select **Browser SDK** or **Node.js**, and choose **Download SDK**. Place the archive in your app directory and install it locally.
+Open your project in Birdwatch and select **Setup** → **Browser SDK** or **Node.js** → **Download SDK**. Save the archive in your app directory, then install it.
 
 ```sh
 npm install ./birdwatch-sdk-0.1.0.tgz
 ```
 
-The same archive is bundled with the Birdwatch source release at `ui/public/assets/birdwatch-sdk-0.1.0.tgz`. The dashboard provides a host and a project-specific write key in each example. A browser write key is public and grants ingestion only.
+Each example in **Setup** includes your server URL and project write key. The key lets clients send events. The same archive is also available in the source release at `ui/public/assets/birdwatch-sdk-0.1.0.tgz`.
 
 ## Browser
 
-Create one client when your application starts. The optional type argument describes your own event vocabulary. JavaScript callers use the same API without the type argument.
+Create one client when your application starts. In TypeScript, pass an optional type with your event names and properties. In JavaScript, call `createBrowserClient()` with the configuration alone.
 
 ```ts
 import { createBrowserClient } from "@birdwatch/sdk";
@@ -43,7 +43,7 @@ console.log(receipt.id);
 
 ### Script tag
 
-For a site without a build step, use **Setup → Script tag**. This works with the existing snippet.
+For a site without a build step, copy the HTML snippet from **Setup** → **Script tag**.
 
 ```html
 <script src="http://127.0.0.1:8123/birdwatch.js"
@@ -85,17 +85,17 @@ try {
 
 In a long-running service, call `shutdown()` from your application's shutdown handler. In a short-lived worker, await `capture()` or `flush()` before returning control to the host. CommonJS callers can use `const { createServerClient } = require("@birdwatch/sdk")`. Server clients support the same optional event catalog as browser clients.
 
-## Delivery contract
+## Delivery and retries
 
 | Method | What completion means |
 | --- | --- |
-| `capture(...)` | Resolves with `{ id, batch: { accepted, duplicates } }` after the collector acknowledges the event. Both a new insert and an existing ID are successful delivery. The counts describe the whole request. |
+| `capture(...)` | Resolves with `{ id, batch: { accepted, duplicates } }` after the collector acknowledges the event. Birdwatch acknowledges new events and events it already recorded. The counts cover the whole request. |
 | `flush()` | Starts delivery immediately and waits for all events outstanding at the time of the call. It rejects after those events settle if any failed. Events captured later have their own receipts. |
-| `shutdown()` | Closes admission, drains pending events, and detaches browser listeners. Repeated calls share the same completion promise. |
+| `shutdown()` | Stops accepting new events, waits for pending delivery, and removes browser listeners. Repeated calls return the same promise. |
 
-The SDK snapshots identity, properties, timestamp, and ID when you call `capture`. It sends batches in capture order, with one request in flight per client. Capture a burst of events first and await their promises together to take advantage of batching. Awaiting each capture in a loop sends them sequentially.
+The SDK saves the identity, properties, timestamp, and ID at the time you call `capture()`. It sends events in capture order, one request at a time per client. To let the SDK batch events, call `capture()` for each event and then await the promises together.
 
-If a connection fails after the collector commits, retries reuse the identical request body and event IDs. The collector's unique project-and-ID constraint deduplicates retries. A caller-supplied `id` extends deduplication to retries initiated by your application. Pair one ID with one logical event and one project.
+Retries reuse the same request body and event IDs, so Birdwatch counts an event once even if the original response was lost. If your app retries an event itself, pass the same `id` each time. Use a separate ID for each new event in a project.
 
 Browser capture accepts `{ id, timestamp }` as its third argument. Server capture accepts the same fields on the event object. A timestamp can be a valid `Date` or a zoned ISO 8601 string. The default is the event's capture time. Properties must be plain JSON objects and fit the collector's 32 KiB encoded limit.
 
@@ -131,7 +131,7 @@ The queue lives in memory. On tab hide or page exit, the SDK attempts a keepaliv
 | `onError` | unset | Optional observer for capture failures. |
 | `persistence` | `"localStorage"` | Browser identity only. Set to `"memory"` for page-lifetime identity. |
 
-## Develop from the source release
+## Build and test the SDK
 
 Inside `sdk/`, run `npm ci` and `npm test` to build both module formats and run the type and behavior tests. Run `npm run test:integration` to exercise a real Python collector with a temporary database. Set `PYTHON` to select a Python interpreter.
 

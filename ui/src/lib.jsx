@@ -109,7 +109,7 @@ export function DataState({ state }) {
     </div>
   ) : (
     <div className="loading" role="status">
-      <LoaderCircle size={17} className="spin" /> Loading activity…
+      <LoaderCircle size={17} className="spin" /> Loading…
     </div>
   );
 }
@@ -206,7 +206,7 @@ export function EventDetail({ event, close, onPerson }) {
         <strong>{event.event}</strong>
       </div>
       <dl>
-        <dt>Distinct ID</dt>
+        <dt>User ID</dt>
         <dd>
           <button
             className="text-link wrap"
@@ -215,7 +215,7 @@ export function EventDetail({ event, close, onPerson }) {
             {event.distinct_id}
           </button>
         </dd>
-        <dt>Captured</dt>
+        <dt>Event time</dt>
         <dd>{dateTime(event.timestamp)}</dd>
         <dt>Event ID</dt>
         <dd>#{event.id}</dd>

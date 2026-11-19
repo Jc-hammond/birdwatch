@@ -32,7 +32,7 @@ function Snippet({ code }) {
         {copied ? "Copied" : "Copy"}
       </button>
       <pre>{code}</pre>
-      {failed && <p>Select the snippet to copy it manually.</p>}
+      {failed && <p>Automatic copy failed. Select and copy the code below.</p>}
     </div>
   );
 }
@@ -56,8 +56,7 @@ export function NewProject({ close, created }) {
   return (
     <Dialog title="Create project" close={close}>
       <p>
-        Give your event stream a name. Each project has its own write key and
-        dashboard.
+        Each project has its own write key and reports.
       </p>
       <form onSubmit={submit}>
         <label className="field">
@@ -102,11 +101,10 @@ export function Setup({ project, create, go }) {
         <span className="feature-icon">
           <FlaskConical size={23} />
         </span>
-        <h2>Connect your own project</h2>
+        <h2>Start collecting your own events</h2>
         <p>
-          You’re exploring a read-only sample captured on{" "}
-          {new Date(p.sample_as_of).toLocaleDateString()}. Create a project to
-          get a write key and start collecting your own events.
+          This demo uses read-only sample data. Create a project to get a write
+          key and send your own events.
         </p>
         <button className="primary" onClick={create}>
           <Plus size={16} /> Create project
@@ -244,7 +242,7 @@ try await client.enqueue("checkout_completed", properties: ["orderId": "order-12
         event: "source_connected",
         properties: { source: "setup" },
       });
-      setResult("Test event received.");
+      setResult("Birdwatch received your test event.");
     } catch (e) {
       setResult(e.message);
     } finally {
@@ -255,7 +253,7 @@ try await client.enqueue("checkout_completed", properties: ["orderId": "order-12
     <div className="setup-layout">
       <section className="card setup-panel">
         <h2>Connect a source</h2>
-        <p>Send events to {p.name} from your app or the HTTP API.</p>
+        <p>Choose how to send events to {p.name}. Each example includes this project’s write key.</p>
         <div className="tabs" role="group" aria-label="Integration method">
           {methods.map(([name, Icon]) => (
             <button
@@ -304,8 +302,8 @@ try await client.enqueue("checkout_completed", properties: ["orderId": "order-12
             </h3>
             <p>
               {tab === "Node.js"
-                ? "Reuse one client across requests. Pass a distinct ID with each event and drain the client when your process exits."
-                : "Define your events and properties once to get type checking at each capture call."}
+                ? "Reuse one client across requests. Include a user ID with each event and call shutdown() before your process exits."
+                : "Define your event names and properties so TypeScript can check each capture call."}
             </p>
             <Snippet
               key={tab}
@@ -316,21 +314,20 @@ try await client.enqueue("checkout_completed", properties: ["orderId": "order-12
           <>
             <h3>
               {tab === "Script tag"
-                ? "Install the browser client"
+                ? "Add the script to your site"
                 : "Send an event with curl"}
             </h3>
             <p>
               {tab === "Script tag"
-                ? "Place this script in the page you want to track. It captures one page_view on load."
-                : "Run this request from your terminal. Use a stable distinct_id for each person."}
+                ? "Paste this script into each page you want to track. It records a page view each time the page loads."
+                : "Run this command in your terminal. Use the same user ID for each person’s events."}
             </p>
             <Snippet key={tab} code={tab === "Script tag" ? tag : curl} />
             {tab === "Script tag" && (
               <>
                 <h3>Capture a custom event</h3>
                 <p>
-                  After the script loads, identify a person and record an
-                  action.
+                  Use your app’s user ID after sign-in so future events appear under that ID.
                 </p>
                 <Snippet
                   code={
@@ -342,14 +339,14 @@ try await client.enqueue("checkout_completed", properties: ["orderId": "order-12
           </>
         )}
         <p className="footnote">
-          Use a collector URL reachable from your app. On a physical device,
-          localhost points to that device.
+          Use a Birdwatch URL your app can reach. On a phone, localhost
+          points to the phone itself.
         </p>
       </section>
       <section className="card setup-panel">
-        <h2>Check ingestion</h2>
+        <h2>Test this project</h2>
         <p>
-          Send a real test event to this project to confirm capture is working.
+          Send a test event from this dashboard, then open Events to find it.
         </p>
         <button className="secondary" disabled={sending} onClick={test}>
           <FlaskConical size={16} />

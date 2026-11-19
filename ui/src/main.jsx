@@ -23,11 +23,11 @@ import { NewProject, Setup } from "./Setup";
 import "./style.css";
 
 const views = {
-  Overview: [ChartNoAxesColumnIncreasing, "A pulse on your product activity."],
-  Events: [List, "Explore the events flowing into your project."],
-  People: [UsersRound, "Follow the activity behind each distinct ID."],
-  Funnels: [Filter, "Measure how people move between events."],
-  Setup: [Settings, "Connect your application to this instance."],
+  Overview: [ChartNoAxesColumnIncreasing, "See how many events, users, and page views your project recorded."],
+  Events: [List, "Find events by name or user ID and inspect their properties."],
+  People: [UsersRound, "See who was active and open their event history."],
+  Funnels: [Filter, "See how many people complete two events in order."],
+  Setup: [Settings, "Send events from your website, app, or backend."],
 };
 function route() {
   const [path, query] = location.hash.slice(1).split("?");
@@ -162,7 +162,7 @@ function Sidebar({
         </nav>
         <div className="instance">
           <i className="dot" />
-          Local instance
+          Self-hosted
         </div>
       </aside>
     </>

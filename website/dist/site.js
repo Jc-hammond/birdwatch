@@ -72,8 +72,8 @@ function render() {
       '<div class="stats">' +
       stat("Total events", rows.length) +
       stat("Visitors", viewed.size) +
-      stat("Conversion", rate + "%") +
-      '</div><div class="chart-label"><b class="card-title">Event activity</b><div class="legend"><span>Events</span><span>Views</span></div></div><div class="plot" role="img" aria-label="Events by day, November 1 through 7: ' +
+      stat("Sign-up rate", rate + "%") +
+      '</div><div class="chart-label"><b class="card-title">Events by day</b><div class="legend"><span>Events</span><span>Views</span></div></div><div class="plot" role="img" aria-label="Events by day, November 1 through 7: ' +
       days.map((d) => d[0]).join(", ") +
       '">' +
       bars +
@@ -121,7 +121,7 @@ function render() {
         .join("");
   }
   send.lastChild.textContent =
-    viewed.size === converted.size ? "Reset sample" : "Record a sign-up";
+    viewed.size === converted.size ? "Reset demo" : "Record a sign-up";
 }
 function tabs(selector, key, callback) {
   const list = [...document.querySelectorAll(selector)];
@@ -164,10 +164,10 @@ send.addEventListener("click", () => {
       day: 6,
       minute: 700 + converted.size,
     });
-    feedback.textContent = "Recorded sign_up for " + visitor + ".";
+    feedback.textContent = "Added a sign-up for " + visitor + ".";
   } else {
     rows = seed();
-    feedback.textContent = "Sample project reset.";
+    feedback.textContent = "Demo reset.";
   }
   render();
 });
