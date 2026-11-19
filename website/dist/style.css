@@ -777,6 +777,15 @@ footer {
   }
 }
 @media (max-width: 365px) {
+  .mast-inner {
+    height: auto;
+    min-height: 64px;
+    flex-wrap: wrap;
+    padding-block: 12px;
+  }
+  .mast nav {
+    margin-inline-start: auto;
+  }
   .wrap {
     width: calc(100% - 28px);
   }

@@ -106,7 +106,3 @@ python3 server.py
 The integration suite uses temporary databases and ephemeral loopback ports. It exercises event capture, batch rollback, retry deduplication, UTC boundaries, ordered funnels, project isolation, access control, and reporting after reopening the database.
 
 Birdwatch is released under the [MIT license](LICENSE). Third-party licenses for bundled dashboard code are included in [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
-
-## Upgrading from Signalnest
-
-Point Birdwatch at your existing database with `--db`. Existing project write keys and HTTP capture payloads work as before. The server also accepts the previous `SIGNALNEST_*` settings and serves the legacy `/signalnest.js` script URL. The browser client retains the existing anonymous identity and exposes both global names. For a pre-existing Compose installation, retain its volume and set `BIRDWATCH_DB=/data/signalnest.sqlite3` before starting the renamed service.
