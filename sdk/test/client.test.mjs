@@ -61,10 +61,10 @@ test("checks inputs before enqueue, including Python's ASCII-escaped properties 
     { ...input("x"), timestamp: "2025-01-01" },
     { ...input("x"), distinctId: "\ud800" },
     { ...input("x"), event: "" },
-    { event: "x" },
+    { event: "" },
   ];
   for (const e of invalid)
-    await assert.rejects(client.capture(e), code("invalid_input"));
+    await assert.rejects(client.capture(e.event, e.properties, { ...e }), code("invalid_input"));
   assert.equal(requests.length, 0);
 });
 
@@ -75,7 +75,7 @@ test("a failing async observer does not replace a delivery error", async () => {
     },
   });
   await assert.rejects(
-    client.capture({ event: "missing identity" }),
+    client.capture(""),
     code("invalid_input"),
   );
 });

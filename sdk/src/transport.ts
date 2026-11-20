@@ -78,9 +78,14 @@ export function configure(
     invalid("A Fetch API implementation is required.");
   if (options.onError !== undefined && typeof options.onError !== "function")
     invalid("onError must be a function.");
+  let observer = options.onError;
   return {
+    onError(handler: NonNullable<ClientOptions["onError"]>) {
+      if (typeof handler !== "function") invalid("onError must be a function.");
+      observer = handler;
+    },
     report(error: BirdwatchError) {
-      try { void Promise.resolve(options.onError?.(error)).catch(() => {}); }
+      try { void Promise.resolve(observer?.(error)).catch(() => {}); }
       catch { /* Observers do not change delivery outcomes. */ }
     },
     endpoint,
