@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   Check,
@@ -16,12 +16,17 @@ import { api, DataState, Dialog, useData } from "./lib";
 function Snippet({ code }) {
   const [copied, setCopied] = useState(false),
     [failed, setFailed] = useState(false);
+  const timer = useRef();
+  useEffect(() => () => clearTimeout(timer.current), []);
   async function copy() {
     try {
       await navigator.clipboard.writeText(code);
+      clearTimeout(timer.current);
       setCopied(true);
+      timer.current = setTimeout(() => setCopied(false), 2000);
       setFailed(false);
     } catch {
+      setCopied(false);
       setFailed(true);
     }
   }
@@ -88,12 +93,36 @@ export function NewProject({ close, created }) {
     </Dialog>
   );
 }
-export function Setup({ project, create, go }) {
+const methods = [
+  ["Script tag", Code2],
+  ["Browser SDK", Package],
+  ["Node.js", Terminal],
+  ["React Native", Package],
+  ["Expo Exact", Code2],
+  ["Swift", Package],
+  ["Android", Package],
+  ["HTTP API", Terminal],
+];
+function scriptTag(key) {
+  return '<script src="' + location.origin + '/birdwatch.js" data-key="' + key + '" data-pageview="true"></script>';
+}
+export function FirstEvent({ project }) {
+  const setup = useData("/api/projects/" + project.id + "/setup");
+  if (setup.error || !setup.data) return <DataState state={setup} />;
+  return (
+    <section className="card setup-panel">
+      <h2>Waiting for your first event</h2>
+      <p>Add this script to your site and open a page to record a page view.</p>
+      <Snippet code={scriptTag(setup.data.write_key)} />
+    </section>
+  );
+}
+export function Setup({ project, create, go, selected }) {
   const state = useData("/api/projects/" + project.id + "/setup");
-  const [tab, setTab] = useState("Script tag"),
-    [result, setResult] = useState(""),
+  const tab = methods.some(([name]) => name === selected) ? selected : "Script tag";
+  const [result, setResult] = useState(null),
     [sending, setSending] = useState(false);
-  if (!state.data) return <DataState state={state} />;
+  if (state.error || !state.data) return <DataState state={state} />;
   const p = state.data;
   if (p.sample_as_of)
     return (
@@ -112,12 +141,7 @@ export function Setup({ project, create, go }) {
       </section>
     );
   const origin = location.origin;
-  const tag =
-    '<script src="' +
-    origin +
-    '/birdwatch.js" data-key="' +
-    p.write_key +
-    '" data-pageview="true"></script>';
+  const tag = scriptTag(p.write_key);
   const curl =
     "curl -X POST '" +
     origin +
@@ -223,17 +247,8 @@ try await client.identify("user-42")
 try await client.enqueue("checkout_completed", properties: ["orderId": "order-123"], id: "checkout:order-123")`,
     },
   }[tab];
-  const methods = [
-    ["Script tag", Code2],
-    ["Browser SDK", Package],
-    ["Node.js", Terminal],
-    ["React Native", Package],
-    ["Expo Exact", Code2],
-    ["Swift", Package],
-    ["Android", Package],
-    ["HTTP API", Terminal],
-  ];
   async function test() {
+    setResult(null);
     setSending(true);
     try {
       await api("/api/capture", {
@@ -242,9 +257,9 @@ try await client.enqueue("checkout_completed", properties: ["orderId": "order-12
         event: "source_connected",
         properties: { source: "setup" },
       });
-      setResult("Birdwatch received your test event.");
+      setResult({ ok: true, message: "Birdwatch received your test event." });
     } catch (e) {
-      setResult(e.message);
+      setResult({ ok: false, message: e.message });
     } finally {
       setSending(false);
     }
@@ -260,7 +275,7 @@ try await client.enqueue("checkout_completed", properties: ["orderId": "order-12
               key={name}
               aria-pressed={name === tab}
               className={name === tab ? "active" : ""}
-              onClick={() => setTab(name)}
+              onClick={() => go("Setup", { tab: name })}
             >
               <Icon size={16} /> {name}
             </button>
@@ -353,11 +368,11 @@ try await client.enqueue("checkout_completed", properties: ["orderId": "order-12
           {sending ? "Sending…" : "Send test event"}
         </button>
         {result && (
-          <div className="test-result" role="status">
-            {result}{" "}
-            <button className="text-link" onClick={() => go("Events")}>
+          <div className={result.ok ? "test-result" : "notice error"} role={result.ok ? "status" : "alert"}>
+            {result.message}{" "}
+            {result.ok && <button className="text-link" onClick={() => go("Events")}>
               View events <ArrowRight size={14} />
-            </button>
+            </button>}
           </div>
         )}
       </section>

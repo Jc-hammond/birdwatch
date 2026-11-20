@@ -12,6 +12,8 @@ import {
   useData,
 } from "./lib";
 
+import { FirstEvent } from "./Setup";
+
 const titles = [
   "Total events",
   "Active users",
@@ -218,10 +220,13 @@ export function Overview({ project, days, go, inspect }) {
     project.sample_as_of ? 0 : 5000
   );
   const r = state.data;
-  if (!r) return <DataState state={state} />;
+  const history = useData(!project.sample_as_of && r?.current[0] === 0
+    ? "/api/projects/" + project.id + "/names" : null, state.data?.as_of);
+  if (!r || state.error) return <DataState state={state} />;
+  if (history.error) return <DataState state={history} />;
+  if (r.current[0] === 0 && history.data?.names.length === 0) return <FirstEvent project={project} />;
   return (
     <>
-      {state.error && <DataState state={state} />}
       <Metrics report={r} days={days} />
       <Chart series={r.series} />
       <div className="lower-grid">

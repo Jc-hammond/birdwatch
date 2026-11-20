@@ -42,7 +42,7 @@ function route() {
     ? Number(params.get("days"))
     : 7;
   const filters = {};
-  for (const key of ["person", "name"])
+  for (const key of ["person", "name", "q", "tab"])
     if (params.get(key)) filters[key] = params.get(key);
   return { id: Number(id), view, days, filters };
 }
@@ -202,6 +202,19 @@ function ThemeSwitch() {
     </label>
   );
 }
+class ViewBoundary extends React.Component {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <section className="card setup-panel" role="alert">
+        <h2>This view could not be displayed</h2>
+        <button className="secondary" onClick={() => this.setState({ failed: false })}>Reload view</button>
+      </section>
+    );
+  }
+}
 function App() {
   const [loc, setLoc] = useState(route),
     [refresh, setRefresh] = useState(0),
@@ -239,7 +252,7 @@ function App() {
     setCreating(false);
     navigate(p.id, "Setup", 7);
   }
-  const key = [project?.id, view, days, JSON.stringify(filters)].join("|");
+  const key = [project?.id, view, days, filters.person, filters.name].join("|");
   return (
     <div className="app">
       <a
@@ -318,6 +331,8 @@ function App() {
               </div>
             )}
           </header>
+          <ViewBoundary key={key}>
+          {state.error && project && <DataState state={state} />}
           {!project ? (
             <DataState state={state} />
           ) : view === "Overview" ? (
@@ -338,9 +353,11 @@ function App() {
             <Setup
               key={project.id}
               {...{ project, go }}
+              selected={filters.tab}
               create={() => setCreating(true)}
             />
           )}
+          </ViewBoundary>
         </main>
       </div>
       {creating && (

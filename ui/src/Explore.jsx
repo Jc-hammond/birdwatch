@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   ChevronLeft,
@@ -18,23 +18,46 @@ import {
 } from "./lib";
 
 export function Explorer({ view, project, days, filters, go, inspect }) {
-  const isPeople = view === "People";
-  const [q, setQ] = useState(""),
-    [search, setSearch] = useState(""),
-    [pages, setPages] = useState([]),
-    [pageIndex, setPageIndex] = useState(0);
-  const offset = pageIndex * 30;
+  const search = filters.q || "";
+  const [draft, setDraft] = useState(search);
+  const timer = useRef();
   useEffect(() => {
-    const t = setTimeout(() => {
-      if (q.trim() !== search) {
-        setSearch(q.trim());
-        setPageIndex(0);
-        setPages([]);
-      }
+    setDraft(search);
+    return () => clearTimeout(timer.current);
+  }, [search]);
+  function change(value) {
+    setDraft(value);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      const { q, ...other } = filters;
+      const next = value.trim();
+      if (next !== search) go(view, next ? { ...other, q: next } : other);
     }, 180);
-    return () => clearTimeout(t);
-  }, [q, search]);
-  const params = new URLSearchParams({ days, q: search, ...filters });
+  }
+  return (
+    <section className="card explorer">
+      <header className="table-toolbar">
+        <label className="search">
+          <Search size={16} />
+          <input aria-label={"Search " + view.toLowerCase()}
+            placeholder={view === "People" ? "Search by user ID…" : "Search by event name or user ID…"}
+            value={draft} onChange={(e) => change(e.target.value)} />
+        </label>
+        {(filters.name || filters.person) && (
+          <button className="chip" title="Remove filter" onClick={() => go(view, search ? { q: search } : {})}>
+            {filters.name || filters.person} <X size={14} />
+          </button>
+        )}
+      </header>
+      <Results key={search} {...{ view, project, days, filters, go, inspect }} />
+    </section>
+  );
+}
+function Results({ view, project, days, filters, go, inspect }) {
+  const isPeople = view === "People";
+  const [pages, setPages] = useState([]), [pageIndex, setPageIndex] = useState(0);
+  const offset = pageIndex * 30;
+  const params = new URLSearchParams({ days, ...filters });
   if (pageIndex) params.set("cursor", pages[pageIndex - 1].next);
   const cached = pages[pageIndex];
   const live = useData(
@@ -51,29 +74,7 @@ export function Explorer({ view, project, days, filters, go, inspect }) {
   const state = cached ? { data: cached } : live;
   const rows = state.data?.rows;
   return (
-    <section className="card explorer">
-      <header className="table-toolbar">
-        <label className="search">
-          <Search size={16} />
-          <input
-            aria-label={isPeople ? "Search people" : "Search events"}
-            placeholder={
-              isPeople ? "Search by user ID…" : "Search by event name or user ID…"
-            }
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-        </label>
-        {(filters.name || filters.person) && (
-          <button
-            className="chip"
-            title="Remove filter"
-            onClick={() => go(view)}
-          >
-            {filters.name || filters.person} <X size={14} />
-          </button>
-        )}
-      </header>
+    <>
       {state.error && <DataState state={state} />}
       {!rows && !state.error && <DataState state={state} />}
       {rows?.length > 0 && (
@@ -192,7 +193,7 @@ export function Explorer({ view, project, days, filters, go, inspect }) {
           </div>
         </footer>
       )}
-    </section>
+    </>
   );
 }
 
@@ -219,7 +220,7 @@ export function Funnels({ project, days }) {
     0,
     project.sample_as_of ? 0 : 5000
   );
-  if (!options.data) return <DataState state={options} />;
+  if (options.error || !options.data) return <DataState state={options} />;
   if (!names.length)
     return (
       <section className="card">
@@ -228,6 +229,7 @@ export function Funnels({ project, days }) {
         </Empty>
       </section>
     );
+  if (state.error) return <DataState state={state} />;
   const r = state.data;
   const rate = r?.entered
     ? Math.round((1000 * r.converted) / r.entered) / 10
