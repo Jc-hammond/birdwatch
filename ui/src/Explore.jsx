@@ -58,6 +58,7 @@ function Results({ view, project, days, filters, go, inspect }) {
   const offset = pageIndex * 30;
   const params = new URLSearchParams({ days, ...filters });
   if (pageIndex) params.set("cursor", pages[pageIndex - 1].next);
+  else params.set("include_total", "1");
   const cached = pages[pageIndex];
   const live = useData(
     cached ? null :
@@ -73,17 +74,7 @@ function Results({ view, project, days, filters, go, inspect }) {
   const state = cached ? { data: cached } : live;
   const rows = state.data?.rows;
   const first = pages[0] ?? live.data;
-  const [lastPage, setLastPage] = useState(null);
-  useEffect(() => {
-    if (pageIndex && rows && !state.data.next)
-      setLastPage({ first, total: offset + rows.length });
-  }, [pageIndex, rows, state.data?.next, first, offset]);
-  const snapshotTotal = rows && !state.data.next ? offset + rows.length
-    : lastPage?.first === first ? lastPage?.total : undefined;
-  const unfiltered = !filters.q && !filters.person && !filters.name;
-  const overview = useData(unfiltered && rows && snapshotTotal == null
-    ? "/api/projects/" + project.id + "/overview?days=" + days : null, 0, project.sample_as_of ? 0 : 5000);
-  const currentTotal = overview.data?.current[isPeople ? 1 : 0];
+  const total = first?.total;
   const unit = (count) => isPeople ? (count === 1 ? "person" : "people") : (count === 1 ? "event" : "events");
   return (
     <>
@@ -170,11 +161,7 @@ function Results({ view, project, days, filters, go, inspect }) {
         <footer className="pagination">
           <span>
             {rows.length ? int(offset + 1) + "–" + int(offset + rows.length) : "0"}
-            {snapshotTotal != null ? " of " + int(snapshotTotal) + " " + unit(snapshotTotal)
-              : currentTotal != null && !overview.error
-                ? " · " + int(currentTotal) + " " + unit(currentTotal) + (project.sample_as_of ? " in range" : " currently in range")
-                : " · at least " + int(offset + rows.length + 1) + " " + unit(offset + rows.length + 1)}
-
+            {Number.isInteger(total) ? " of " + int(total) + " " + unit(total) : " · count unavailable"}
           </span>
           <div>
             <button

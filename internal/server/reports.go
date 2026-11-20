@@ -98,6 +98,11 @@ func (s *Server) readReport(kind string) endpoint {
 		}
 		rawCursor := params.Get("cursor")
 		params.Del("cursor")
+		withTotal := params.Has("include_total")
+		if withTotal && (params.Get("include_total") != "1" || rawCursor != "" || (kind != "people" && kind != "events")) {
+			return nil, badParam("include_total (use 1 on the first page)")
+		}
+		params.Del("include_total")
 		if params.Has("offset") {
 			return nil, badParam("offset (use cursor)")
 		}
@@ -152,7 +157,7 @@ func (s *Server) readReport(kind string) endpoint {
 			q := report{db, id, days, end.UTC().Truncate(24*time.Hour).AddDate(0, 0, 1-days), cursor, params}
 			switch kind {
 			case "events", "people":
-				result, err = q.page(kind)
+				result, err = q.page(kind, withTotal)
 			case "overview":
 				result, err = q.overview(end)
 			case "funnel":
@@ -174,13 +179,15 @@ func (s *Server) readReport(kind string) endpoint {
 const inWindow = "project_id=? AND timestamp BETWEEN ? AND ?"
 const eventColumns = "id,event,distinct_id,timestamp,properties"
 
-func (q report) page(kind string) (any, error) {
+func (q report) page(kind string, withTotal bool) (any, error) {
 	where := inWindow + " AND id<=?"
 	args := []any{q.id, q.start.Format(stamp), q.cursor.AsOf, q.cursor.MaxID}
 	search := q.params.Get("q")
 	if strings.ContainsRune(search, 0) {
 		return nil, badParam("q")
 	}
+	var countQuery string
+	var countArgs []any
 	query := ""
 	if kind == "events" {
 		if search != "" {
@@ -193,6 +200,9 @@ func (q report) page(kind string) (any, error) {
 				args = append(args, v)
 			}
 		}
+		if withTotal {
+			countQuery, countArgs = "SELECT count(*) FROM events WHERE "+where, args
+		}
 		if q.cursor.Last != "" {
 			where += " AND (timestamp,id)<(?,?)"
 			args = append(args, q.cursor.Last, q.cursor.ID)
@@ -200,10 +210,32 @@ func (q report) page(kind string) (any, error) {
 		query = "SELECT " + eventColumns + " FROM events WHERE " + where + " ORDER BY timestamp DESC,id DESC LIMIT 31"
 	} else {
 		query, args = q.peoplePage()
+		if withTotal {
+			// The first qualifying day per visitor has a predecessor outside the
+			// window. first_ts bounds the final partial day at this snapshot.
+			countQuery = `SELECT count(*) FROM daily_people WHERE project_id=? AND day BETWEEN ? AND ?
+ AND previous_day<? AND first_ts<=?`
+			startDay := q.start.Format(time.DateOnly)
+			countArgs = []any{q.id, startDay, q.cursor.AsOf[:10], startDay, q.cursor.AsOf}
+			if search != "" {
+				countQuery += " AND instr(lower(distinct_id),lower(?))>0"
+				countArgs = append(countArgs, search)
+			}
+		}
 	}
 	rows, err := records(q.db, query, args...)
 	if err != nil {
 		return nil, err
+	}
+	result := record{"as_of": q.cursor.AsOf}
+	if withTotal {
+		total := int64(len(rows))
+		if len(rows) > 30 {
+			if err := q.db.QueryRow(countQuery, countArgs...).Scan(&total); err != nil {
+				return nil, err
+			}
+		}
+		result["total"] = total
 	}
 	var next *string
 	if len(rows) > 30 {
@@ -223,7 +255,8 @@ func (q report) page(kind string) (any, error) {
 		encoded := base64.RawURLEncoding.EncodeToString(raw)
 		next = &encoded
 	}
-	return record{"rows": rows, "next": next, "as_of": q.cursor.AsOf}, nil
+	result["rows"], result["next"] = rows, next
+	return result, nil
 }
 
 func (q report) peoplePage() (string, []any) {

@@ -195,11 +195,12 @@ func TestSearchAndPagination(t *testing.T) {
 			ID     int
 			Person string `json:"distinct_id"`
 		}
-		Next *string
-		AsOf string `json:"as_of"`
+		Next  *string
+		Total *int
+		AsOf  string `json:"as_of"`
 	}
 	for _, path := range []string{"events?q=a_b", "people?q=%25"} {
-		first := decode[page](t, s.report(t, p, path))
+		first := decode[page](t, s.report(t, p, path+"&include_total=1"))
 		if len(first.Rows) != 30 || first.Next == nil {
 			t.Fatalf("%s: expected first page with cursor", path)
 		}
@@ -215,6 +216,9 @@ func TestSearchAndPagination(t *testing.T) {
 		if strings.HasPrefix(path, "people") {
 			expected++
 		} // Event inserted during the preceding scenario.
+		if first.Total == nil || *first.Total != 30+expected || next.Total != nil {
+			t.Error("incorrect filtered total for first-page snapshot")
+		}
 		if len(next.Rows) != expected || next.Next != nil || next.AsOf != first.AsOf {
 			t.Fatal("unstable or incomplete next page")
 		}
