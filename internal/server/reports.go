@@ -158,7 +158,7 @@ func (s *Server) readReport(kind string) endpoint {
 			case "funnel":
 				result, err = q.funnel()
 			case "names":
-				rows, e := records(db, "SELECT DISTINCT event FROM events WHERE project_id=? ORDER BY event", id)
+				rows, e := records(db, "SELECT DISTINCT event FROM daily_events WHERE project_id=? ORDER BY event", id)
 				names := make([]any, len(rows))
 				for i, r := range rows {
 					names[i] = r["event"]
@@ -203,12 +203,24 @@ func (q report) page(kind string) (any, error) {
 		}
 		query = "SELECT " + eventColumns + " FROM events WHERE " + where + " ORDER BY timestamp DESC,id DESC LIMIT 31"
 	} else {
-		query = "SELECT distinct_id,COUNT(*) n,MIN(timestamp) first_seen,MAX(timestamp) last_seen FROM events WHERE " + where + " GROUP BY distinct_id"
-		if q.cursor.Last != "" {
-			query += " HAVING last_seen<? OR (last_seen=? AND distinct_id>?)"
-			args = append(args, q.cursor.Last, q.cursor.Last, q.cursor.Person)
+		// Daily summaries change in place. A cursor issued before a later
+		// insert still needs its original snapshot, including backdated writes.
+		var changed bool
+		err := q.db.QueryRow("SELECT EXISTS(SELECT 1 FROM events WHERE project_id=? AND id>?) OR EXISTS(SELECT 1 FROM events WHERE project_id=? AND timestamp>? AND timestamp<?)",
+			q.id, q.cursor.MaxID, q.id, q.cursor.AsOf, q.cursor.AsOf[:10]+"T24").Scan(&changed)
+		if err != nil {
+			return nil, err
 		}
-		query += " ORDER BY last_seen DESC,distinct_id LIMIT 31"
+		if changed {
+			query = "SELECT distinct_id,COUNT(*) n,MIN(timestamp) first_seen,MAX(timestamp) last_seen FROM events WHERE " + where + " GROUP BY distinct_id"
+			if q.cursor.Last != "" {
+				query += " HAVING last_seen<? OR (last_seen=? AND distinct_id>?)"
+				args = append(args, q.cursor.Last, q.cursor.Last, q.cursor.Person)
+			}
+			query += " ORDER BY last_seen DESC,distinct_id LIMIT 31"
+		} else {
+			query, args = q.peoplePage()
+		}
 	}
 	rows, err := records(q.db, query, args...)
 	if err != nil {
@@ -235,6 +247,29 @@ func (q report) page(kind string) (any, error) {
 	return record{"rows": rows, "next": next, "as_of": q.cursor.AsOf}, nil
 }
 
+func (q report) peoplePage() (string, []any) {
+	// Walk newest activity first. Aggregate only the 31 matching visitors
+	// whose rows can appear on this page.
+	query := `WITH candidates AS MATERIALIZED (
+ SELECT distinct_id,last_ts FROM daily_people p WHERE project_id=? AND last_ts BETWEEN ? AND ?
+ AND NOT EXISTS(SELECT 1 FROM daily_people later WHERE later.project_id=p.project_id
+ AND later.distinct_id=p.distinct_id AND later.day>p.day AND later.day<=?)`
+	args := []any{q.id, q.start.Format(stamp), q.cursor.AsOf, q.cursor.AsOf[:10]}
+	if search := q.params.Get("q"); search != "" {
+		query += " AND instr(lower(p.distinct_id),lower(?))>0"
+		args = append(args, search)
+	}
+	if q.cursor.Last != "" {
+		query += " AND (last_ts<? OR (last_ts=? AND distinct_id>?))"
+		args = append(args, q.cursor.Last, q.cursor.Last, q.cursor.Person)
+	}
+	query += ` ORDER BY last_ts DESC,distinct_id LIMIT 31)
+ SELECT c.distinct_id,SUM(d.count) n,MIN(d.first_ts) first_seen,c.last_ts last_seen
+ FROM candidates c JOIN daily_people d ON d.project_id=? AND d.distinct_id=c.distinct_id AND d.day BETWEEN ? AND ?
+ GROUP BY c.distinct_id,c.last_ts ORDER BY last_seen DESC,c.distinct_id`
+	return query, append(args, q.id, q.start.Format(time.DateOnly), q.cursor.AsOf[:10])
+}
+
 func (q report) funnel() (any, error) {
 	first, second := q.params.Get("first"), q.params.Get("second")
 	for _, p := range []string{"first", "second"} {
@@ -254,8 +289,6 @@ func (q report) funnel() (any, error) {
 	return record{"entered": entered, "converted": converted}, err
 }
 
-const totals = "COUNT(*) n,COUNT(DISTINCT distinct_id) people,COALESCE(SUM(event IN ('page_view','$pageview')),0) pages"
-
 func metrics(n, people, pages int64) [4]float64 {
 	var avg float64
 	if people > 0 {
@@ -264,36 +297,77 @@ func metrics(n, people, pages int64) [4]float64 {
 	return [4]float64{float64(n), float64(people), float64(pages), avg}
 }
 
+// A historical comparison can end halfway through a UTC day. Only that
+// boundary needs raw timestamps; all complete days come from the summaries.
+func (q report) eventDays(start, end time.Time) (string, []any, error) {
+	day := end.Format(time.DateOnly)
+	next := end.Truncate(24*time.Hour).AddDate(0, 0, 1).Format(stamp)
+	var partial bool
+	err := q.db.QueryRow("SELECT EXISTS(SELECT 1 FROM events WHERE project_id=? AND timestamp>? AND timestamp<?)", q.id, end.Format(stamp), next).Scan(&partial)
+	query := "SELECT day,event,count FROM daily_events WHERE project_id=? AND day BETWEEN ? AND ?"
+	args := []any{q.id, start.Format(time.DateOnly), day}
+	if partial {
+		args[2] = end.AddDate(0, 0, -1).Format(time.DateOnly)
+		query += " UNION ALL SELECT substr(timestamp,1,10),event,COUNT(*) FROM events WHERE " + inWindow + " GROUP BY event"
+		args = append(args, q.id, end.Truncate(24*time.Hour).Format(stamp), end.Format(stamp))
+	}
+	return "WITH counts AS (" + query + ") ", args, err
+}
+
 func (q report) overview(end time.Time) (any, error) {
 	result := record{"as_of": q.cursor.AsOf}
 	for i, field := range []string{"current", "previous"} {
 		shift := -i * q.days
-		var n, people, pages int64
-		err := q.db.QueryRow("SELECT "+totals+" FROM events WHERE "+inWindow, q.id, q.start.AddDate(0, 0, shift).Format(stamp), end.AddDate(0, 0, shift).Format(stamp)).Scan(&n, &people, &pages)
+		start, stop := q.start.AddDate(0, 0, shift), end.AddDate(0, 0, shift)
+		counts, args, err := q.eventDays(start, stop)
 		if err != nil {
 			return nil, err
 		}
+		rows, err := records(q.db, counts+"SELECT day,SUM(count) n,SUM(CASE WHEN event IN ('page_view','$pageview') THEN count ELSE 0 END) pages FROM counts GROUP BY day", args...)
+		if err != nil {
+			return nil, err
+		}
+		var n, people, pages int64
+		days := make(map[string][4]float64, len(rows))
+		for _, row := range rows {
+			events, views := row["n"].(int64), row["pages"].(int64)
+			n += events
+			pages += views
+			days[row["day"].(string)] = metrics(events, 0, views)
+		}
+		window := "project_id=? AND day BETWEEN ? AND ? AND (day<? OR first_ts<=?)"
+		bounds := []any{q.id, start.Format(time.DateOnly), stop.Format(time.DateOnly), stop.Format(time.DateOnly), stop.Format(stamp)}
+		if n > 0 {
+			err = q.db.QueryRow("SELECT COUNT(DISTINCT distinct_id) FROM daily_people WHERE "+window, bounds...).Scan(&people)
+			if err != nil {
+				return nil, err
+			}
+		}
 		result[field] = metrics(n, people, pages)
+		if i != 0 {
+			continue
+		}
+		rows, err = records(q.db, "SELECT day,COUNT(*) n FROM daily_people WHERE "+window+" GROUP BY day", bounds...)
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			day := row["day"].(string)
+			d := days[day]
+			days[day] = metrics(int64(d[0]), row["n"].(int64), int64(d[2]))
+		}
+		series := make([]record, q.days)
+		for j := range series {
+			day := start.AddDate(0, 0, j).Format(time.DateOnly)
+			series[j] = record{"date": day, "values": days[day]}
+		}
+		result["series"] = series
+		result["top"], err = records(q.db, counts+"SELECT event,SUM(count) n FROM counts GROUP BY event ORDER BY n DESC,event LIMIT 5", args...)
+		if err != nil {
+			return nil, err
+		}
 	}
-	args := []any{q.id, q.start.Format(stamp), q.cursor.AsOf}
-	rows, err := records(q.db, "SELECT substr(timestamp,1,10) day,"+totals+" FROM events WHERE "+inWindow+" GROUP BY day", args...)
-	if err != nil {
-		return nil, err
-	}
-	byDay := map[string][4]float64{}
-	for _, row := range rows {
-		byDay[row["day"].(string)] = metrics(row["n"].(int64), row["people"].(int64), row["pages"].(int64))
-	}
-	series := make([]record, q.days)
-	for i := range series {
-		day := q.start.AddDate(0, 0, i).Format(time.DateOnly)
-		series[i] = record{"date": day, "values": byDay[day]}
-	}
-	result["series"] = series
-	result["top"], err = records(q.db, "SELECT event,COUNT(*) n FROM events WHERE "+inWindow+" GROUP BY event ORDER BY n DESC,event LIMIT 5", args...)
-	if err != nil {
-		return nil, err
-	}
-	result["recent"], err = records(q.db, "SELECT "+eventColumns+" FROM events WHERE "+inWindow+" ORDER BY timestamp DESC,id DESC LIMIT 5", args...)
+	recent, err := records(q.db, "SELECT "+eventColumns+" FROM events WHERE "+inWindow+" ORDER BY timestamp DESC,id DESC LIMIT 5", q.id, q.start.Format(stamp), q.cursor.AsOf)
+	result["recent"] = recent
 	return result, err
 }
