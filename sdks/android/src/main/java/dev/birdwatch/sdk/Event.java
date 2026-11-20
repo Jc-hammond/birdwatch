@@ -1,5 +1,7 @@
 package dev.birdwatch.sdk;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import java.lang.reflect.Array;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -16,39 +18,49 @@ public final class Event {
   final String id;
   final long timestampMillis;
   final String properties;
+  final RuntimeException invalid;
 
-  public Event(String name, Map<String, ?> properties) {
+  public Event(@NonNull String name, @Nullable Map<String, ?> properties) {
     this(name, properties, UUID.randomUUID().toString(), System.currentTimeMillis());
   }
 
-  public Event(String name, Map<String, ?> properties, String id) {
+  public Event(@NonNull String name, @Nullable Map<String, ?> properties, @NonNull String id) {
     this(name, properties, id, System.currentTimeMillis());
   }
 
-  public Event(String name, Map<String, ?> properties, String id, long timestampMillis) {
-    this.name = field(name, "event", 128);
-    this.id = field(id, "id", 128);
-    if (timestampMillis < -62135596800000L
-        || timestampMillis > System.currentTimeMillis() + 300000L)
-      throw new IllegalArgumentException(
-          "Occurrence time is outside the collector's supported range");
+  public Event(
+      @NonNull String name,
+      @Nullable Map<String, ?> properties,
+      @NonNull String id,
+      long timestampMillis) {
+    this.name = name;
+    this.id = id == null ? "" : id;
     this.timestampMillis = timestampMillis;
+    String snapshot = "{}";
+    RuntimeException failure = null;
     try {
-      this.properties =
+      field(name, "event", 128);
+      field(id, "id", 128);
+      if (timestampMillis < -62135596800000L || timestampMillis > 253402300799999L)
+        throw new IllegalArgumentException("Occurrence time is outside the supported range");
+      snapshot =
           json(properties == null ? Collections.emptyMap() : properties, new IdentityHashMap<>())
               .toString();
+      int length = 0;
+      for (int i = 0; i < snapshot.length(); i++) {
+        length += snapshot.charAt(i) >= 127 ? 6 : 1;
+        if (length > 32768) throw new IllegalArgumentException("Event properties exceed 32 KiB");
+      }
     } catch (JSONException e) {
-      throw new IllegalArgumentException("Invalid event properties", e);
+      failure = new IllegalArgumentException("Invalid event properties", e);
+    } catch (RuntimeException e) {
+      failure = e;
     }
-    // The collector counts compact JSON with non-ASCII characters escaped.
-    int length = 0;
-    for (int i = 0; i < this.properties.length(); i++) {
-      char c = this.properties.charAt(i);
-      length += c >= 127 ? 6 : 1;
-      if (length > 32768) throw new IllegalArgumentException("Event properties exceed 32 KiB");
-    }
+    this.properties = snapshot;
+    this.invalid = failure;
   }
 
+  @NonNull
   public String getId() {
     return id;
   }

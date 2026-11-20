@@ -46,7 +46,7 @@ test-swift:
 	cd sdks/swift && swift build && swift test
 
 test-android:
-	cd sdks/android && ./gradlew assemble
+	cd sdks/android && ./gradlew assemble testDebugUnitTest
 
 lint: dashboard
 	$(GO) vet ./...
