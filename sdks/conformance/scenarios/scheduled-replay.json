@@ -1,0 +1,7 @@
+{
+  "rule": "The scheduled flush delivers persisted events without another capture or manual flush.",
+  "config": { "browser": true, "persist": true, "lockFirstSQLiteTimer": true },
+  "collector": ["ack"],
+  "steps": [{ "capture": ["a"] }, { "advanceMs": 61000 }],
+  "expect": { "requests": [["a"]], "stored": ["a"], "outbox": [], "errors": 0 }
+}

@@ -11,3 +11,5 @@ The web driver uses the Node entry point for transport scenarios and the browser
 React Native runs the same JSON cases through its packaged CommonJS entry, an AsyncStorage adapter, AppState callbacks and the local collector. Run `node --test sdks/conformance/native.test.mjs` after `make js-sdk`.
 
 On macOS, `make test-swift` uses the same scenarios, HTTP collector and assertions. Its driver runs the Swift SDK in a child process, advances the SDK clock, restarts the process with the same SQLite outbox, and triggers the background flush.
+
+The scheduled-replay scenario advances time with one event on disk. The Swift driver also holds a second connection's exclusive SQLite lock through the first timer tick. After release, the SDK must schedule another attempt itself.

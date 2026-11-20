@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 
 private let output = NSLock()
 private func reply(_ message: [String: Any]) {
@@ -30,6 +31,7 @@ private actor Driver {
   let host: URL
   let file: URL
   var client: BirdwatchClient?
+  var lockConnection: OpaquePointer?
   init() {
     host = URL(string: CommandLine.arguments[1])!
     file = URL(fileURLWithPath: CommandLine.arguments[2]).appendingPathComponent("outbox.sqlite3")
@@ -53,6 +55,13 @@ private actor Driver {
     }
     guard let client else { return [:] }
     switch op {
+    case "lockOutbox":
+      guard sqlite3_open(file.path, &lockConnection) == SQLITE_OK,
+        sqlite3_exec(lockConnection, "BEGIN EXCLUSIVE", nil, nil, nil) == SQLITE_OK
+      else { throw BirdwatchError.storage("Could not acquire fixture lock.") }
+    case "unlockOutbox":
+      sqlite3_close(lockConnection)
+      lockConnection = nil
     case "capture":
       _ = try await client.enqueue(
         command["event"] as! String, id: command["uuid"] as? String ?? UUID().uuidString)
