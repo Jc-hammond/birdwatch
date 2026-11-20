@@ -26,9 +26,7 @@ def area(path):
         return "dashboard"
     if parts[0] == "sdk" or parts[:2] == ("sdks", "web"):
         return "sdk-web"
-    if parts[0] == "sdks" and len(parts) > 1 and parts[1] in {"swift", "android", "react-native", "exact"}:
-        return "sdk-mobile"
-    if str(path) == "sdks/endpoint.ts":
+    if parts[0] == "sdks":
         return "sdk-mobile"
     return None
 
