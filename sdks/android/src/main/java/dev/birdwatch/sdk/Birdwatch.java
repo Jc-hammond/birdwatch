@@ -371,10 +371,14 @@ public final class Birdwatch implements Closeable {
     }
   }
 
+  private void failReceipts(Throwable error) {
+    while (!waiting.isEmpty()) settle(waiting.firstKey(), null, error);
+  }
+
   private void corrupt(Throwable error) {
     active.clear();
     retry.clear();
-    while (!waiting.isEmpty()) settle(waiting.firstKey(), null, error);
+    failReceipts(error);
     settleBarriers(Long.MAX_VALUE, error);
     report(error);
   }
@@ -455,6 +459,7 @@ public final class Birdwatch implements Closeable {
     if (ack.error != null) settleBarriers(Long.MAX_VALUE, ack.error);
     if (ack.error != null && (ack.terminal || (ack.pause && !paused))) report(ack.error);
     paused |= ack.pause;
+    if (ack.pause) failReceipts(ack.error);
     if (paused) return;
     if (ack.terminal && retry.isEmpty()) {
       backoff = 1000;
@@ -504,7 +509,7 @@ public final class Birdwatch implements Closeable {
           }
           unregisterBackground.run();
           IllegalStateException closed = new IllegalStateException("Birdwatch client is closed");
-          while (!waiting.isEmpty()) settle(waiting.firstKey(), null, closed);
+          failReceipts(closed);
           settleBarriers(Long.MAX_VALUE, closed);
           io.shutdown();
           outbox.close();
