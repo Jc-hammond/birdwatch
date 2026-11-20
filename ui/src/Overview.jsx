@@ -12,6 +12,8 @@ import {
   useData,
 } from "./lib";
 
+import { FirstEvent } from "./Setup";
+
 const titles = [
   "Total events",
   "Active users",
@@ -94,7 +96,9 @@ function Metrics({ report, days }) {
                 <Arrow size={13} />
                 {change === null ? "—" : (change > 0 ? "+" : "") + change + "%"}
               </b>
-              <span>vs. previous {days === 1 ? "day" : days + " days"}</span>
+              <span>vs. previous {days === 1 ? "day" : days + " days"}
+                {report.previous_full_day && " · includes all of " + report.previous_full_day + " UTC"}
+              </span>
             </div>
           </article>
         );
@@ -218,10 +222,13 @@ export function Overview({ project, days, go, inspect }) {
     project.sample_as_of ? 0 : 5000
   );
   const r = state.data;
-  if (!r) return <DataState state={state} />;
+  const history = useData(!project.sample_as_of && r?.current[0] === 0
+    ? "/api/projects/" + project.id + "/names" : null, 0, 5000);
+  if (!r || state.error) return <DataState state={state} />;
+  if (history.error) return <DataState state={history} />;
+  if (r.current[0] === 0 && history.data?.names.length === 0) return <FirstEvent project={project} />;
   return (
     <>
-      {state.error && <DataState state={state} />}
       <Metrics report={r} days={days} />
       <Chart series={r.series} />
       <div className="lower-grid">

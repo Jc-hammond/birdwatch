@@ -75,7 +75,7 @@ func benchmark(ctx context.Context, count int) (r result, err error) {
 	}
 	r.Rate = float64(count) / time.Since(start).Seconds()
 	for _, report := range []struct{ name, query string }{
-		{"overview", "overview?days=30"}, {"events", "events?days=30"}, {"people", "people?days=30"},
+		{"overview", "overview?days=30"}, {"events", "events?days=30&include_total=1"}, {"people", "people?days=30&include_total=1"},
 		{"event names", "names?days=30"}, {"funnel", "funnel?days=30&first=page_view&second=event_1"},
 	} {
 		var samples []time.Duration

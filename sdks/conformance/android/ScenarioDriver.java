@@ -72,8 +72,8 @@ public class ScenarioDriver {
 
   private void close() throws Exception {
     if (client == null) return;
-    client.close();
-    client.closed.get(5, TimeUnit.SECONDS);
+    // An app process can disappear without flushing its disk queue.
+    client.stop().get(5, TimeUnit.SECONDS);
     client = null;
     if (activity != null) {
       activity.destroy();
@@ -134,8 +134,8 @@ public class ScenarioDriver {
         String id = msg.getString("id");
         CompletableFuture<String> saved =
             msg.getBoolean("generated")
-                ? client.enqueue(id)
-                : client.enqueue(new Event("example", null, id, now));
+                ? client.capture(id)
+                : client.capture("example", null, id, now);
         saved.get(5, TimeUnit.SECONDS);
         break;
       case "status":

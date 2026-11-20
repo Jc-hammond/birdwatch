@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   Check,
@@ -11,17 +11,23 @@ import {
   Terminal,
 } from "lucide-react";
 import versions from "./generated/sdk-versions.json";
+import exactExample from "../../sdks/exact/example/app.ts?raw";
 import { api, DataState, Dialog, useData } from "./lib";
 
 function Snippet({ code }) {
   const [copied, setCopied] = useState(false),
     [failed, setFailed] = useState(false);
+  const timer = useRef();
+  useEffect(() => () => clearTimeout(timer.current), []);
   async function copy() {
     try {
       await navigator.clipboard.writeText(code);
+      clearTimeout(timer.current);
       setCopied(true);
+      timer.current = setTimeout(() => setCopied(false), 2000);
       setFailed(false);
     } catch {
+      setCopied(false);
       setFailed(true);
     }
   }
@@ -88,12 +94,36 @@ export function NewProject({ close, created }) {
     </Dialog>
   );
 }
-export function Setup({ project, create, go }) {
+const methods = [
+  ["Script tag", Code2],
+  ["Browser SDK", Package],
+  ["Node.js", Terminal],
+  ["React Native", Package],
+  ["Expo Exact", Code2],
+  ["Swift", Package],
+  ["Android", Package],
+  ["HTTP API", Terminal],
+];
+function scriptTag(key) {
+  return '<script src="' + location.origin + '/birdwatch.js" data-key="' + key + '" data-pageview="true"></script>';
+}
+export function FirstEvent({ project }) {
+  const setup = useData("/api/projects/" + project.id + "/setup");
+  if (setup.error || !setup.data) return <DataState state={setup} />;
+  return (
+    <section className="card setup-panel">
+      <h2>Waiting for your first event</h2>
+      <p>Add this script to your site and open a page to record a page view.</p>
+      <Snippet code={scriptTag(setup.data.write_key)} />
+    </section>
+  );
+}
+export function Setup({ project, create, go, selected }) {
   const state = useData("/api/projects/" + project.id + "/setup");
-  const [tab, setTab] = useState("Script tag"),
-    [result, setResult] = useState(""),
+  const tab = methods.some(([name]) => name === selected) ? selected : "Script tag";
+  const [result, setResult] = useState(null),
     [sending, setSending] = useState(false);
-  if (!state.data) return <DataState state={state} />;
+  if (state.error || !state.data) return <DataState state={state} />;
   const p = state.data;
   if (p.sample_as_of)
     return (
@@ -112,12 +142,7 @@ export function Setup({ project, create, go }) {
       </section>
     );
   const origin = location.origin;
-  const tag =
-    '<script src="' +
-    origin +
-    '/birdwatch.js" data-key="' +
-    p.write_key +
-    '" data-pageview="true"></script>';
+  const tag = scriptTag(p.write_key);
   const curl =
     "curl -X POST '" +
     origin +
@@ -137,13 +162,13 @@ export function Setup({ project, create, go }) {
   const packageTab = tab === "Browser SDK" || tab === "Node.js";
   const browserSdk = `import { createBrowserClient } from "@birdwatch/sdk";
 
-type Events = { sign_up: { plan: "free" | "pro" } };
+type Events = { sign_up: { plan: "free" | "pro" }; page_view: { path: string } };
 const analytics = createBrowserClient<Events>({
   host: ${JSON.stringify(origin)},
   writeKey: ${JSON.stringify(p.write_key)},
 });
 
-await analytics.page();
+await analytics.capture("page_view", { path: location.pathname });
 analytics.identify("user_42");
 await analytics.capture("sign_up", { plan: "free" });`;
   const nodeSdk = `import { createServerClient } from "@birdwatch/sdk";
@@ -154,13 +179,9 @@ const analytics = createServerClient({
 });
 
 try {
-  await analytics.capture({
-    event: "sign_up",
-    distinctId: "user_42",
-    properties: { plan: "free" },
-  });
+  await analytics.capture("sign_up", { plan: "free" }, { distinctId: "user_42" });
 } finally {
-  await analytics.shutdown();
+  await analytics.close();
 }`;
   const clientConfig = `host: ${JSON.stringify(
     origin
@@ -175,18 +196,17 @@ try {
       install: `dependencies {\n    implementation(files("libs/birdwatch-android-${versions.android}.aar"))\n}`,
       detail: "Save the AAR in app/libs and add the dependency to app/build.gradle.kts. The standard emulator reaches your computer at 10.0.2.2. For a physical device, use a reachable HTTPS collector.",
       example: `import dev.birdwatch.sdk.Birdwatch
-import dev.birdwatch.sdk.Event
 
 val client = Birdwatch.open(applicationContext, ${JSON.stringify(androidHost.origin)}, ${JSON.stringify(p.write_key)})
 client.identify("user-42")
-client.enqueue(Event("checkout_completed", mapOf("orderId" to "order-123"), "checkout:order-123"))`,
+client.capture("checkout_completed", mapOf("orderId" to "order-123"), "checkout:order-123", null)`,
     },
     "React Native": {
       file: `birdwatch-react-native-${versions.reactNative}.tgz`,
       install:
         `npx expo install expo-crypto @react-native-async-storage/async-storage\nnpm install ./birdwatch-react-native-${versions.reactNative}.tgz`,
       detail:
-        "Initialize once at startup. Await enqueue to save an event even while offline.",
+        "Initialize once at startup. Await capture to save an event even while offline.",
       example: `import { createReactNativeClient } from "@birdwatch/react-native";
 import { randomUUID } from "expo-crypto";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -196,17 +216,16 @@ const client = await createReactNativeClient({
   storage: AsyncStorage, randomUUID,
 });
 await client.identify("user-42");
-await client.enqueue("checkout_completed", { orderId: "order-123" }, { id: "checkout:order-123" });`,
+await client.capture("checkout_completed", { orderId: "order-123" }, { id: "checkout:order-123" });`,
     },
     "Expo Exact": {
       file: `birdwatch-exact-${versions.exact}.tgz`,
       install: `npm install ./birdwatch-exact-${versions.exact}.tgz`,
       detail:
-        "The download includes a Contract app that commits locally, replays at launch, and retries while open. Replace its host and write key with these values.",
-      example: `import { createExactClient } from "@birdwatch/exact";
-
-export const grants = ${JSON.stringify("net.fetch " + origin + "\nsqlite.open app:/data/birdwatch.sqlite")};
-const client = createExactClient({ ${clientConfig}, fetch });`,
+        "Copy the packaged example’s manifest and Contract, then use this app.ts for your project.",
+      example: exactExample
+        .replace('"http://127.0.0.1:8123"', () => JSON.stringify(origin))
+        .replace('"YOUR_PROJECT_WRITE_KEY"', () => JSON.stringify(p.write_key)),
     },
     Swift: {
       file: `birdwatch-swift-${versions.swift}.zip`,
@@ -220,31 +239,26 @@ let client = try await BirdwatchClient(
     writeKey: ${JSON.stringify(p.write_key)}
 )
 try await client.identify("user-42")
-try await client.enqueue("checkout_completed", properties: ["orderId": "order-123"], id: "checkout:order-123")`,
+try await client.capture("checkout_completed", properties: ["orderId": "order-123"], id: "checkout:order-123")`,
     },
   }[tab];
-  const methods = [
-    ["Script tag", Code2],
-    ["Browser SDK", Package],
-    ["Node.js", Terminal],
-    ["React Native", Package],
-    ["Expo Exact", Code2],
-    ["Swift", Package],
-    ["Android", Package],
-    ["HTTP API", Terminal],
-  ];
   async function test() {
+    setResult(null);
     setSending(true);
     try {
-      await api("/api/capture", {
+      const ack = await api("/api/capture", {
         api_key: p.write_key,
         distinct_id: "setup_test",
         event: "source_connected",
         properties: { source: "setup" },
       });
-      setResult("Birdwatch received your test event.");
+      if (ack?.accepted !== 1 || ack.duplicates !== 0 || (ack.rejected !== undefined &&
+          (!Array.isArray(ack.rejected) || ack.rejected.length))) {
+        throw new Error(typeof ack?.error === "string" ? ack.error : "Birdwatch did not acknowledge the test event.");
+      }
+      setResult({ ok: true, message: "Birdwatch received your test event." });
     } catch (e) {
-      setResult(e.message);
+      setResult({ ok: false, message: e.message });
     } finally {
       setSending(false);
     }
@@ -260,7 +274,7 @@ try await client.enqueue("checkout_completed", properties: ["orderId": "order-12
               key={name}
               aria-pressed={name === tab}
               className={name === tab ? "active" : ""}
-              onClick={() => setTab(name)}
+              onClick={() => go("Setup", { tab: name })}
             >
               <Icon size={16} /> {name}
             </button>
@@ -302,7 +316,7 @@ try await client.enqueue("checkout_completed", properties: ["orderId": "order-12
             </h3>
             <p>
               {tab === "Node.js"
-                ? "Reuse one client across requests. Include a user ID with each event and call shutdown() before your process exits."
+                ? "Reuse one client across requests. Include a user ID with each event and call close() before your process exits."
                 : "Define your event names and properties so TypeScript can check each capture call."}
             </p>
             <Snippet
@@ -353,11 +367,11 @@ try await client.enqueue("checkout_completed", properties: ["orderId": "order-12
           {sending ? "Sending…" : "Send test event"}
         </button>
         {result && (
-          <div className="test-result" role="status">
-            {result}{" "}
-            <button className="text-link" onClick={() => go("Events")}>
+          <div className={result.ok ? "test-result" : "notice error"} role={result.ok ? "status" : "alert"}>
+            {result.message}{" "}
+            {result.ok && <button className="text-link" onClick={() => go("Events")}>
               View events <ArrowRight size={14} />
-            </button>
+            </button>}
           </div>
         )}
       </section>

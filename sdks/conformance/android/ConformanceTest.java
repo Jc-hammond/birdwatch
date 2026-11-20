@@ -20,24 +20,24 @@ public final class ConformanceTest {
   @Test
   public void invalidEventReachesFutureAndErrorHandler() throws Exception {
     LinkedBlockingQueue<Throwable> errors = new LinkedBlockingQueue<>();
-    try (Birdwatch client =
+    Birdwatch client =
         new Birdwatch.Builder(RuntimeEnvironment.getApplication(), "http://127.0.0.1", "test")
             .onError(errors::add)
-            .build()) {
+            .build();
+    try {
       Map<String, Object> cyclic = new HashMap<>();
       cyclic.put("self", cyclic);
       CompletableFuture<?>[] invalid = {
         client.capture(""),
-        client.enqueue(new Event("test", cyclic)),
-        client.screen(null),
+        client.capture("test", cyclic),
         client.identify(""),
-        client.enqueue((Event) null)
+        client.capture((String) null)
       };
       for (CompletableFuture<?> future : invalid) {
         ExecutionException failure =
             assertThrows(ExecutionException.class, () -> future.get(5, TimeUnit.SECONDS));
         assertSame(failure.getCause(), errors.poll(5, TimeUnit.SECONDS));
       }
-    }
+    } finally { client.close().get(5, TimeUnit.SECONDS); }
   }
 }

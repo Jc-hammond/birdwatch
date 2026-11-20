@@ -25,7 +25,7 @@ final class BirdwatchTests: XCTestCase {
       ["v": .number(.infinity)], ["v": .string(String(repeating: "x", count: 32768))],
     ] {
       do {
-        _ = try await client.enqueue("invalid", properties: props)
+        _ = try await client.capture("invalid", properties: props)
         XCTFail("accepted invalid properties")
       } catch BirdwatchError.invalidInput {}
     }
