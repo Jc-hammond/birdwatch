@@ -98,11 +98,12 @@ Compose binds the published port to loopback and stores the database in the `eve
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `BIRDWATCH_HOST` or `--host` | `127.0.0.1` | IPv4 address to listen on |
-| `BIRDWATCH_PORT` or `--port` | `8123` | HTTP port |
+| `BIRDWATCH_PORT` or `--port` | `8123` | Plain HTTP port |
+| `BIRDWATCH_DOMAIN` or `--domain` | unset | Go server’s public DNS name for automatic HTTPS |
 | `BIRDWATCH_DB` or `--db` | `data/birdwatch.sqlite3` | Database path, relative to `server.py` by default |
 | `BIRDWATCH_PASSWORD` | unset | HTTP Basic password for the dashboard user `admin` |
 
-Set a dashboard password before exposing Birdwatch to a network. Serve it over HTTPS through a reverse proxy and preserve the original `Host` header. Use the public HTTPS URL in your app’s integration. If your site uses Content Security Policy, allow the Birdwatch origin in `script-src` and `connect-src`.
+Set a dashboard password before exposing Birdwatch to a network. For built-in HTTPS, point the domain’s DNS records to the server, allow inbound TCP ports 80 and 443, and run `build/birdwatch --domain analytics.example.com` with `BIRDWATCH_PASSWORD` set. The flag accepts the certificate authority’s terms. Birdwatch redirects HTTP to HTTPS and keeps its private certificate cache in `birdwatch-certs/` beside the database. For a reverse proxy, run the plain HTTP listener and preserve the original `Host` header. Use the public HTTPS URL in your app’s integration. If your site uses Content Security Policy, allow the Birdwatch origin in `script-src` and `connect-src`.
 
 A project write key lets clients send events. The dashboard administrator can read every project. For a public capture endpoint, apply request and traffic limits at your reverse proxy. Birdwatch is designed for one operator on one host.
 
