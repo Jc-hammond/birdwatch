@@ -5,10 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/ncruces/go-sqlite3"
-	"github.com/ncruces/go-sqlite3/driver"
 )
 
 var migrations = []string{`
@@ -82,28 +80,5 @@ func (s *Store) apply(ctx context.Context, from int, steps []string, backup bool
 }
 
 func (s *Store) backupVersion(ctx context.Context, version int) error {
-	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".birdwatch-backup-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if err = tmp.Close(); err != nil {
-		return err
-	}
-	// The online backup API preserves the original pages and committed WAL contents.
-	conn, err := s.readers.Conn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	err = conn.Raw(func(raw any) error {
-		src := raw.(driver.Conn).Raw()
-		prev := src.SetInterrupt(ctx)
-		defer src.SetInterrupt(prev)
-		return src.Backup("main", fileURI(tmp.Name(), "rw"))
-	})
-	if err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), fmt.Sprintf("%s.v%d.bak", s.path, version))
+	return copyDatabase(ctx, s.path, fmt.Sprintf("%s.v%d.bak", s.path, version), os.Rename)
 }

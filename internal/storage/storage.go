@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
 const readTimeout = 5 * time.Second
