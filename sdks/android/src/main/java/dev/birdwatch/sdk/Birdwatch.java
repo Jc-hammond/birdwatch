@@ -9,7 +9,6 @@ import androidx.annotation.Nullable;
 import java.io.Closeable;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -480,15 +479,11 @@ public final class Birdwatch implements Closeable {
   }
 
   private void settleBarriers(long firstRemaining, Throwable error) {
-    Iterator<Barrier> it = barriers.iterator();
-    while (it.hasNext()) {
-      Barrier barrier = it.next();
-      if (error != null || barrier.through < firstRemaining) {
-        it.remove();
-        if (error == null) barrier.result.complete(null);
-        else barrier.result.completeExceptionally(error);
-      }
+    for (Barrier barrier : barriers) {
+      if (error != null) barrier.result.completeExceptionally(error);
+      else if (barrier.through < firstRemaining) barrier.result.complete(null);
     }
+    barriers.removeIf(barrier -> barrier.result.isDone());
   }
 
   /** Stop collecting and release resources. Previously accepted local writes finish in order. */
