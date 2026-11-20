@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # A fork's normal PR run has a read-only token. Use base-branch code for its comment.
+  pull_request_target:
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    if: github.event_name != 'pull_request_target'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Run HTTP contract tests
+        env:
+          BIRDWATCH_REFERENCE: python
+          BIRDWATCH_SERVER_CMD: python3 server.py
+        run: go test -count=1 ./contract/...
+
+  javascript:
+    if: github.event_name != 'pull_request_target'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Test the SDK
+        working-directory: sdk
+        run: npm ci && npm test
+      - name: Test the adapters
+        run: node sdks/build.mjs && node --test sdks/test/*.test.mjs
+      - name: Build the dashboard
+        working-directory: ui
+        run: npm ci && npm run build
+
+  native:
+    if: github.event_name != 'pull_request_target'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build and test Swift
+        if: runner.os == 'macOS'
+        working-directory: sdks/swift
+        run: swift build && swift test
+      - uses: actions/setup-java@v5
+        if: runner.os == 'Linux'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Assemble Android
+        if: runner.os == 'Linux'
+        working-directory: sdks/android
+        run: ./gradlew assemble
+
+  size:
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    concurrency: size-comment-${{ github.event.pull_request.number }}
+    env:
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # pull_request_target defaults to the trusted base. Never run scripts from a fork.
+          persist-credentials: false
+      - name: Fetch trees to compare
+        run: git fetch --no-tags --depth=1 origin '+refs/heads/main:refs/remotes/origin/main' "+refs/pull/$PR/head:refs/remotes/origin/size-pr"
+      - name: Update source line counts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/size.py
