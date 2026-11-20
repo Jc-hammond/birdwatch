@@ -31,12 +31,7 @@ func run() error {
 		if flags.NArg() != 0 {
 			return errors.New("usage: birdwatch rebuild-rollups [--db path]")
 		}
-		db, err := storage.Open(ctx, *path)
-		if err != nil {
-			return err
-		}
-		defer db.Close()
-		return db.RebuildRollups(ctx)
+		return storage.RebuildRollups(ctx, *path)
 	}
 	if len(os.Args) > 1 && os.Args[1] == "backup" {
 		flags := flag.NewFlagSet("birdwatch backup", flag.ContinueOnError)

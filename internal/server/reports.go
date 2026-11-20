@@ -177,20 +177,16 @@ const eventColumns = "id,event,distinct_id,timestamp,properties"
 func (q report) page(kind string) (any, error) {
 	where := inWindow + " AND id<=?"
 	args := []any{q.id, q.start.Format(stamp), q.cursor.AsOf, q.cursor.MaxID}
-	if search := q.params.Get("q"); search != "" {
-		if strings.ContainsRune(search, 0) {
-			return nil, badParam("q")
-		}
-		if kind == "events" {
-			where += " AND (instr(lower(event),lower(?))>0 OR instr(lower(distinct_id),lower(?))>0)"
-			args = append(args, search, search)
-		} else {
-			where += " AND instr(lower(distinct_id),lower(?))>0"
-			args = append(args, search)
-		}
+	search := q.params.Get("q")
+	if strings.ContainsRune(search, 0) {
+		return nil, badParam("q")
 	}
 	query := ""
 	if kind == "events" {
+		if search != "" {
+			where += " AND (instr(lower(event),lower(?))>0 OR instr(lower(distinct_id),lower(?))>0)"
+			args = append(args, search, search)
+		}
 		for _, filter := range []struct{ key, column string }{{"name", "event"}, {"person", "distinct_id"}} {
 			if v := q.params.Get(filter.key); v != "" {
 				where += " AND " + filter.column + "=?"
@@ -203,24 +199,7 @@ func (q report) page(kind string) (any, error) {
 		}
 		query = "SELECT " + eventColumns + " FROM events WHERE " + where + " ORDER BY timestamp DESC,id DESC LIMIT 31"
 	} else {
-		// Daily summaries change in place. A cursor issued before a later
-		// insert still needs its original snapshot, including backdated writes.
-		var changed bool
-		err := q.db.QueryRow("SELECT EXISTS(SELECT 1 FROM events WHERE project_id=? AND id>?) OR EXISTS(SELECT 1 FROM events WHERE project_id=? AND timestamp>? AND timestamp<?)",
-			q.id, q.cursor.MaxID, q.id, q.cursor.AsOf, q.cursor.AsOf[:10]+"T24").Scan(&changed)
-		if err != nil {
-			return nil, err
-		}
-		if changed {
-			query = "SELECT distinct_id,COUNT(*) n,MIN(timestamp) first_seen,MAX(timestamp) last_seen FROM events WHERE " + where + " GROUP BY distinct_id"
-			if q.cursor.Last != "" {
-				query += " HAVING last_seen<? OR (last_seen=? AND distinct_id>?)"
-				args = append(args, q.cursor.Last, q.cursor.Last, q.cursor.Person)
-			}
-			query += " ORDER BY last_seen DESC,distinct_id LIMIT 31"
-		} else {
-			query, args = q.peoplePage()
-		}
+		query, args = q.peoplePage()
 	}
 	rows, err := records(q.db, query, args...)
 	if err != nil {
@@ -248,26 +227,36 @@ func (q report) page(kind string) (any, error) {
 }
 
 func (q report) peoplePage() (string, []any) {
-	// Walk newest activity first. Aggregate only the 31 matching visitors
-	// whose rows can appear on this page.
-	query := `WITH candidates AS MATERIALIZED (
- SELECT distinct_id,last_ts FROM daily_people p WHERE project_id=? AND last_ts BETWEEN ? AND ?
+	// Keep each page at its original capture watermark. Only visitors whose
+	// summaries include newer rows need their counts reconstructed from events.
+	const query = `WITH changed AS MATERIALIZED (
+ SELECT distinct_id FROM events INDEXED BY events_project_sequence
+ WHERE project_id=?1 AND id>?6 AND timestamp BETWEEN ?2 AND ?3
+ UNION SELECT distinct_id FROM events WHERE project_id=?1 AND timestamp>?3 AND timestamp<?10
+), candidates AS MATERIALIZED (
+ SELECT distinct_id,last_ts FROM daily_people p WHERE project_id=?1 AND last_ts BETWEEN ?2 AND ?3
+ AND (last_ts<?8 OR (last_ts=?8 AND distinct_id>?9))
+ AND (?7='' OR instr(lower(distinct_id),lower(?7))>0)
+ AND distinct_id NOT IN (SELECT distinct_id FROM changed)
  AND NOT EXISTS(SELECT 1 FROM daily_people later WHERE later.project_id=p.project_id
- AND later.distinct_id=p.distinct_id AND later.day>p.day AND later.day<=?)`
-	args := []any{q.id, q.start.Format(stamp), q.cursor.AsOf, q.cursor.AsOf[:10]}
-	if search := q.params.Get("q"); search != "" {
-		query += " AND instr(lower(p.distinct_id),lower(?))>0"
-		args = append(args, search)
-	}
-	if q.cursor.Last != "" {
-		query += " AND (last_ts<? OR (last_ts=? AND distinct_id>?))"
-		args = append(args, q.cursor.Last, q.cursor.Last, q.cursor.Person)
-	}
-	query += ` ORDER BY last_ts DESC,distinct_id LIMIT 31)
+ AND later.distinct_id=p.distinct_id AND later.day>p.day AND later.day<=?4)
+ ORDER BY last_ts DESC,distinct_id LIMIT 31
+), snapshot AS (
  SELECT c.distinct_id,SUM(d.count) n,MIN(d.first_ts) first_seen,c.last_ts last_seen
- FROM candidates c CROSS JOIN daily_people d ON d.project_id=? AND d.distinct_id=c.distinct_id AND d.day BETWEEN ? AND ?
- GROUP BY c.distinct_id,c.last_ts ORDER BY last_seen DESC,c.distinct_id`
-	return query, append(args, q.id, q.start.Format(time.DateOnly), q.cursor.AsOf[:10])
+ FROM candidates c CROSS JOIN daily_people d ON d.project_id=?1 AND d.distinct_id=c.distinct_id AND d.day BETWEEN ?5 AND ?4
+ GROUP BY c.distinct_id,c.last_ts
+ UNION ALL SELECT e.distinct_id,COUNT(*),MIN(e.timestamp),MAX(e.timestamp) last_seen
+ FROM changed c CROSS JOIN events e INDEXED BY events_person ON e.project_id=?1 AND e.distinct_id=c.distinct_id
+ WHERE e.timestamp BETWEEN ?2 AND ?3 AND e.id<=?6 AND (?7='' OR instr(lower(c.distinct_id),lower(?7))>0)
+ GROUP BY e.distinct_id HAVING last_seen<?8 OR (last_seen=?8 AND e.distinct_id>?9)
+)
+ SELECT * FROM snapshot ORDER BY last_seen DESC,distinct_id LIMIT 31`
+	last := q.cursor.Last
+	if last == "" {
+		last = q.cursor.AsOf
+	}
+	return query, []any{q.id, q.start.Format(stamp), q.cursor.AsOf, q.cursor.AsOf[:10], q.start.Format(time.DateOnly), q.cursor.MaxID, q.params.Get("q"), last, q.cursor.Person, q.cursor.AsOf[:10] + "T24"}
+
 }
 
 func (q report) funnel() (any, error) {
@@ -355,8 +344,18 @@ func (q report) overview(end time.Time) (any, error) {
 			bounds = append(bounds, stop.Format(time.DateOnly), stop.Format(stamp))
 		}
 		if n > 0 {
-			// Visit each person's days consecutively, avoiding a temporary table for DISTINCT.
-			err = q.db.QueryRow("SELECT COUNT(DISTINCT distinct_id) FROM daily_people INDEXED BY sqlite_autoindex_daily_people_1 WHERE "+window, bounds...).Scan(&people)
+			// With a long history, bound the work by the requested days. When
+			// the range covers all activity, person order avoids a DISTINCT sort.
+			var outside bool
+			err = q.db.QueryRow("SELECT EXISTS(SELECT 1 FROM daily_events WHERE project_id=? AND day<?) OR EXISTS(SELECT 1 FROM daily_events WHERE project_id=? AND day>?)", q.id, start.Format(time.DateOnly), q.id, stop.Format(time.DateOnly)).Scan(&outside)
+			if err != nil {
+				return nil, err
+			}
+			index := "sqlite_autoindex_daily_people_1"
+			if outside {
+				index = "daily_people_day"
+			}
+			err = q.db.QueryRow("SELECT COUNT(DISTINCT distinct_id) FROM daily_people INDEXED BY "+index+" WHERE "+window, bounds...).Scan(&people)
 			if err != nil {
 				return nil, err
 			}

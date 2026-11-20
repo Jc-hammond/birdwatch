@@ -35,7 +35,12 @@ CREATE TRIGGER rollup_event AFTER INSERT ON events BEGIN
 END;
 ` + fillDaily
 
-func (s *Store) RebuildRollups(ctx context.Context) error {
+func RebuildRollups(ctx context.Context, path string) error {
+	s, err := open(ctx, path, false)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
 	return s.write(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, "DELETE FROM daily_events; DELETE FROM daily_people;"+fillDaily)
 		return err
