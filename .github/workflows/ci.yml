@@ -60,7 +60,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Assemble Android
+      - name: Assemble Android and run JVM conformance
         if: runner.os == 'Linux'
         run: make test-android && make check-clean
 

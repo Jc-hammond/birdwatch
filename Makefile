@@ -47,7 +47,7 @@ test-swift:
 	node --test sdks/conformance/swift.test.mjs
 
 test-android:
-	cd sdks/android && ./gradlew assemble
+	cd sdks/android && ./gradlew assemble testDebugUnitTest
 
 lint: dashboard
 	$(GO) vet ./...
