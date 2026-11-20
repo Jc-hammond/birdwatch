@@ -21,6 +21,7 @@ import { createBrowserClient } from "@birdwatch/sdk";
 
 type Events = {
   sign_up: { plan: "free" | "pro" };
+  page_view: { path: string };
   search_submitted: { resultCount: number };
 };
 
@@ -29,14 +30,13 @@ const analytics = createBrowserClient<Events>({
   writeKey: "YOUR_PROJECT_WRITE_KEY",
 });
 
-await analytics.page();
+await analytics.capture("page_view", { path: location.pathname });
 analytics.identify("user_42");
-const receipt = await analytics.capture("sign_up", { plan: "pro" });
-console.log(receipt.id);
+const id = await analytics.capture("sign_up", { plan: "pro" });
 ```
 
-- **Identity.** The first visit gets a random anonymous ID. Read it with `analytics.distinctId`. `identify(id)` sets the identity for subsequent events, including across page loads. Call `reset()` at logout to create a new anonymous identity. Previous events retain the identity they had at capture time. Historical identities are separate in the collector.
-- **Page views.** Call `page()` after a committed route change to record the current pathname. The module sends events only when called. The event contains the pathname. It omits query parameters, fragments, referrers and cookies.
+- **Identity.** The first visit gets a random anonymous ID. `identify(id)` sets the identity for subsequent events, including across page loads. Call `reset()` at logout to create a new anonymous identity. Previous events retain the identity they had at capture time. Historical identities are separate in the collector.
+- **Page views.** Call `capture("page_view", { path: location.pathname })` after a committed route change to record the current pathname. The module sends events only when called. The event contains the pathname. It omits query parameters, fragments, referrers and cookies.
 - **Persistence.** The browser client stores identity in local storage per Birdwatch project and observes changes from other tabs. Choose `persistence: "memory"` for a page-lifetime identity. If storage is unavailable, it falls back to memory.
 - **Consent.** Where your app requires consent, create the client after consent is granted. Creating the default browser client initializes its local identity.
 - **SSR.** Importing the package is side-effect free. Create the browser client after the browser environment is available.
@@ -54,7 +54,7 @@ For a site without a build step, copy the HTML snippet from **Setup** → **Scri
 </script>
 ```
 
-`data-pageview="true"` sends one page view on load. The script exposes `window.birdwatch` and its `capture()` method returns `{ accepted, duplicates }`. It uses the same delivery implementation with a batch size of one. The global also exposes `page()`, `distinctId`, `reset()`, `flush()`, and `shutdown()`.
+`data-pageview="true"` sends one page view on load. The script exposes the six client methods on `window.birdwatch` and uses a batch size of one.
 
 ## Node.js
 
@@ -72,26 +72,22 @@ const analytics = createServerClient({
 });
 
 try {
-  await analytics.capture({
-    distinctId: "user_42",
-    event: "payment_captured",
-    id: "payment_8391",
-    properties: { amountCents: 2400, currency: "USD" },
-  });
+  await analytics.capture("payment_captured", { amountCents: 2400, currency: "USD" },
+    { distinctId: "user_42", id: "payment_8391" });
 } finally {
-  await analytics.shutdown();
+  await analytics.close();
 }
 ```
 
-In a long-running service, call `shutdown()` from your application's shutdown handler. In a short-lived worker, await `capture()` or `flush()` before returning control to the host. CommonJS callers can use `const { createServerClient } = require("@birdwatch/sdk")`. Server clients support the same optional event catalog as browser clients.
+In a long-running service, call `close()` from your application's shutdown handler. In a short-lived worker, await `capture()` or `flush()` before returning control to the host. CommonJS callers can use `const { createServerClient } = require("@birdwatch/sdk")`. Server clients support the same optional event catalog as browser clients.
 
 ## Delivery and retries
 
 | Method | What completion means |
 | --- | --- |
-| `capture(...)` | Resolves with `{ id, batch: { accepted, duplicates } }` after the collector acknowledges the event. Birdwatch acknowledges new events and events it already recorded. The counts cover the whole request. |
-| `flush()` | Starts delivery immediately and waits for all events outstanding at the time of the call. It rejects after those events settle if any failed. Events captured later have their own receipts. |
-| `shutdown()` | Stops accepting new events, waits for pending delivery, and removes browser listeners. Repeated calls return the same promise. |
+| `capture(...)` | Returns the event ID after local storage commits when browser persistence is enabled, or after collector acknowledgement for an in-memory event. |
+| `flush()` | Attempts pending delivery and resolves after the attempt. |
+| `close()` | Attempts delivery and stops timers and browser listeners. |
 
 The SDK saves the identity, properties, timestamp, and ID at the time you call `capture()`. It sends queued events in capture order. A closing page can resend unacknowledged events while a request is in flight. To let the SDK batch events, call `capture()` for each event and then await the promises together.
 

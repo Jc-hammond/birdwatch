@@ -12,10 +12,12 @@ export const grants = [
 const client = createExactClient({ host, writeKey: "YOUR_PROJECT_WRITE_KEY", fetch });
 
 const sources: Sources = {
-  recordCompletion: ([distinctId, id, at], _store, storage) =>
-    client.enqueue({ id, distinctId, timestamp: new Date(at).toISOString(),
-      event: "onboarding_completed", properties: { step: "welcome" } }, storage),
-  replay: ([at, background, token], _store, storage) => client.flush(storage, at, background, token),
+  recordCompletion: async ([distinctId, id, at], _store, storage) => {
+    const context = { storage, at };
+    await client.identify(context, distinctId);
+    return { id: await client.capture(context, "onboarding_completed", { step: "welcome" }, { id }) };
+  },
+  replay: ([at, background, retryToken], _store, storage) => client.flush({ storage, at, background, retryToken }),
 };
 export const answer: Answer = (source, args, store, storage, native) =>
   sources[source](args, store, storage, native);

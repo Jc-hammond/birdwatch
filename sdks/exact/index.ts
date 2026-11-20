@@ -1,9 +1,9 @@
-import { encodeEvent, invalid, type EncodedEvent } from "../../sdk/src/event.js";
+import { encodeEvent, invalid, newId, type EncodedEvent } from "../../sdk/src/event.js";
 import { captureEndpoint, configure, payload, send } from "../../sdk/src/transport.js";
-import type { ClientOptions, EventCatalog, ServerEvent } from "../../sdk/src/types.js";
+import type { ClientOptions, EventCatalog, Properties, ServerEvent } from "../../sdk/src/types.js";
 import { utf8Length } from "../../sdk/src/utf8.js";
-import { exactOutbox } from "./outbox.js";
-export { exactOutboxPath, type ExactStorage, type QueuedExactEvent } from "./outbox.js";
+import { exactOutbox, type ExactStorage } from "./outbox.js";
+export { exactOutboxPath, type ExactStorage } from "./outbox.js";
 export { BirdwatchError, type BatchCounts, type Properties } from "../../sdk/src/types.js";
 
 export type ExactEvent = Omit<ServerEvent<EventCatalog>, "timestamp"> & { timestamp?: string };
@@ -29,18 +29,38 @@ export function createExactClient(options: ExactOptions) {
   function deliver(rows: EncodedEvent[], at: number, background: boolean) {
     return send(config, payload(config.key, rows, new Date(at).toISOString()), rows.length, false, background);
   }
-  async function captureBatch(events: readonly ExactEvent[], at: number) {
-    if (!Array.isArray(events) || !events.length || events.length > 100) invalid("Send 1–100 events per batch.");
-    if (!Number.isFinite(at)) invalid("Pass epoch milliseconds from Contract.");
-    const rows = events.map(encode);
-    if (rows.reduce((size, row) => size + row.bytes + 1, overhead - 1) > 1048576) invalid("Limit the request to 1 MiB.");
-    const result = await deliver(rows, at, false);
-    for (const error of result.rejected.values()) config.report(error);
-    return result.counts;
+  const box = exactOutbox(JSON.stringify([config.endpoint, config.key]), config.maxQueue, overhead, encode, deliver, config.report);
+  let closing: Promise<void> | undefined;
+  function open() { if (closing) invalid("The Exact client is closed."); }
+  async function flush(ctx: ExactContext) {
+    return box.flush(ctx.storage, ctx.at, ctx.background, ctx.retryToken);
   }
   return {
-    captureBatch,
-    capture: (event: ExactEvent, at: number) => captureBatch([event], at),
-    ...exactOutbox(JSON.stringify([config.endpoint, config.key]), config.maxQueue, overhead, encode, deliver, config.report),
+    async capture(ctx: ExactContext, name: string, properties?: Properties, options: { id?: string; timestamp?: string } = {}) {
+      open();
+      if (!Number.isFinite(ctx.at)) invalid("Pass epoch milliseconds from Contract.");
+      return box.enqueue({ event: name, properties, id: options.id, timestamp: options.timestamp ?? new Date(ctx.at).toISOString() }, ctx.storage);
+    },
+    async identify(ctx: ExactContext, id: string) { open(); await box.identify(ctx.storage, id); },
+    async reset(ctx: ExactContext) { open(); await box.identify(ctx.storage, newId()); },
+    async flush(ctx: ExactContext): Promise<ExactFlushResult> { open(); return flush(ctx); },
+    close(ctx: ExactContext) { return closing ??= flush(ctx).then(() => {}); },
+    onError: config.onError,
   };
+}
+
+/** Contract supplies its granted storage and the current action clock to each answer. */
+export interface ExactContext {
+  storage: ExactStorage;
+  at: number;
+  background?: boolean;
+  retryToken?: number;
+}
+
+export interface ExactFlushResult {
+  accepted: number;
+  duplicates: number;
+  retryAfterMs: number;
+  retryAtMs: number;
+  retryToken: number;
 }

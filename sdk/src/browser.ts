@@ -5,7 +5,6 @@ import type {
   BrowserOptions,
   CatalogShape,
   EventCatalog,
-  CaptureOptions,
 } from "./types.js";
 
 export function createBrowserClient<C extends CatalogShape<C> = EventCatalog>(
@@ -68,9 +67,6 @@ export function createBrowserClient<C extends CatalogShape<C> = EventCatalog>(
   if (storage) window.addEventListener("storage", onStorage);
   document.addEventListener("visibilitychange", onVisibility);
   return {
-    get distinctId() {
-      return person;
-    },
     identify,
     reset() {
       identify(newId());
@@ -78,20 +74,13 @@ export function createBrowserClient<C extends CatalogShape<C> = EventCatalog>(
     capture(event, ...args) {
       return queue.capture(event, person, args[0], args[1]);
     },
-    page(options?: CaptureOptions) {
-      return queue.capture(
-        "page_view",
-        person,
-        { path: window.location.pathname },
-        options
-      );
-    },
     flush: () => queue.flush(),
-    shutdown() {
+    onError: queue.onError,
+    close() {
       window.removeEventListener("pagehide", flushPage);
       window.removeEventListener("storage", onStorage);
       document.removeEventListener("visibilitychange", onVisibility);
-      return queue.shutdown();
+      return queue.close();
     },
   };
 }

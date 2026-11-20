@@ -16,41 +16,26 @@ Create one client per project at application startup. Use the write key from Bir
 
 ```kotlin
 import dev.birdwatch.sdk.Birdwatch
-import dev.birdwatch.sdk.Event
 
 val analytics = Birdwatch.open(applicationContext, "https://analytics.example.com", writeKey)
 
 // Call after sign-in. SDK operations submitted to this client run in order.
 analytics.identify("user-42")
-val checkout = Event("checkout_completed", mapOf("orderId" to "order-123", "total" to 54), "checkout:order-123")
-analytics.enqueue(checkout).whenComplete { eventId, error ->
+val checkout = analytics.capture("checkout_completed", mapOf("orderId" to "order-123"), "checkout:order-123", null)
+checkout.whenComplete { eventId, error ->
     if (error != null) android.util.Log.e("Analytics", "Could not save checkout", error)
 }
 ```
 
-| Method | Completion |
-| --- | --- |
-| `enqueue(event)` | The event ID after the local SQLite transaction commits, including offline. |
-| `capture(event)` | A collector receipt with the event ID and the accepted and duplicate counts for its batch. The SDK saves the event before sending. |
-| `screen(name)` | A collector receipt for a `screen_view` event. |
-| `identify(person)`, `reset()`, `distinctId()` | Set, rotate, or read the project’s persistent identity. Earlier events keep their original identity. |
-| `flush()` | Delivery of the events outstanding when the flush reaches the local queue. A failed request completes the future exceptionally. |
-| `close()` | Stop work and release the client’s resources. Committed events remain available on the next open. |
+`capture` returns a future containing the event ID after SQLite commits. Supply the same ID on an application retry or omit it to generate a UUID. An optional fourth argument is the occurrence time in epoch milliseconds. The SDK snapshots properties when capture is called. Properties support JSON primitives, string-keyed maps, lists, arrays and null.
 
-Methods that return a `CompletableFuture` work from Java as well. The SDK owns its storage and networking threads. To use collector receipts from Java:
-
-```java
-analytics.capture("search", Collections.singletonMap("results", 3))
-    .thenAccept(receipt -> Log.d("Analytics", "Acknowledged " + receipt.getId()));
-```
-
-Use asynchronous callbacks or your app’s coroutine integration for futures. Move UI updates onto the main thread. An `Event` snapshots its JSON properties and timestamp when constructed. Supply the same ID for application-level retries of one action, or let the SDK generate a UUID. To import an earlier occurrence, use `Event(name, properties, id, timestampMillis)`. Properties can contain JSON primitives, string-keyed maps, lists, arrays, and null.
+Use `identify` and `reset` for subsequent captures, `onError` to register a background error handler, `flush` to attempt delivery, and `close` to flush and release resources. Android runs storage and delivery on worker threads. Dispatch UI updates to the main thread.
 
 ## Offline delivery
 
 Events commit to SQLite in the app’s no-backup directory. The SDK sends up to 100 events per request. Each retry preserves the original ID, timestamp and properties. Opening the client, regaining connectivity or backgrounding the final activity triggers delivery. Unknown keys pause delivery and retain queued events until the next open. Network errors and unrecognised responses retry with full jitter, respecting Retry-After up to five minutes.
 
-Queue capacity defaults to 1,000 events per collector and write key. Overflow drops the oldest events and reports once until delivery frees space. A damaged database is moved aside before collection resumes. The builder’s `onError` receives invalid input, rejection, overflow and storage errors. Invalid input completes the returned future exceptionally, including when passed in an explicitly constructed `Event`. Configure `maxQueueSize` and `timeoutMillis` (default 5,000) on the builder.
+Queue capacity defaults to 1,000 events per collector and write key. Overflow drops the oldest events and reports once until delivery frees space. A damaged database is moved aside before collection resumes. The builder’s `onError` receives invalid input, rejection, overflow and storage errors. Invalid input completes the returned future exceptionally. Configure `maxQueueSize` and `timeoutMillis` (default 5,000) on the builder.
 
 ## Local development
 

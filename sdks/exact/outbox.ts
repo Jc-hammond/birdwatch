@@ -1,4 +1,4 @@
-import { invalid, newId, type EncodedEvent } from "../../sdk/src/event.js";
+import { invalid, newId, stringField, type EncodedEvent } from "../../sdk/src/event.js";
 import { BirdwatchError } from "../../sdk/src/types.js";
 import { DeliveryFailure, retryDelay, type send } from "../../sdk/src/transport.js";
 import type { ExactEvent } from "./index.js";
@@ -75,11 +75,28 @@ export function exactOutbox(scope: string, capacity: number, overhead: number,
   let overflow = false, paused = false;
   let failures = 0, generation = 0, waiting = 0, wait = 0, retryAt = 0;
   let running: Promise<typeof empty> | undefined, retryThrough: string | undefined;
-  async function enqueue(input: QueuedExactEvent, storage: ExactStorage) {
+  async function person(db: Database, value?: string): Promise<string> {
+    await db.execute("CREATE TABLE IF NOT EXISTS identity_v1(scope TEXT PRIMARY KEY,person TEXT NOT NULL)");
+    if (value !== undefined) {
+      await db.execute("INSERT INTO identity_v1 VALUES(?,?) ON CONFLICT(scope) DO UPDATE SET person=excluded.person", [scope, stringField(value, "distinctId", 256)]);
+      return value;
+    }
+    const read = () => db.query("SELECT person FROM identity_v1 WHERE scope=?", [scope]);
+    let row = (await read()).rows[0];
+    if (!row) {
+      await db.execute("INSERT INTO identity_v1 VALUES(?,?) ON CONFLICT DO NOTHING", [scope, newId()]);
+      row = (await read()).rows[0];
+    }
+    return stringField(row?.[0], "stored identity", 256);
+  }
+  function identify(storage: ExactStorage, value: string) {
+    return use(storage, report, async db => { await person(db, value); });
+  }
+  async function enqueue(input: Omit<QueuedExactEvent, "distinctId">, storage: ExactStorage) {
     if (!input.timestamp) invalid("Pass the original event time from Contract.");
-    const encoded = encode(input);
-    const { uuid: id, distinct_id: distinctId, ...fields } = JSON.parse(encoded.json);
     return use(storage, report, async db => {
+      const encoded = encode({ ...input, distinctId: await person(db) });
+      const { uuid: id, distinct_id: distinctId, ...fields } = JSON.parse(encoded.json);
       const [, dropped] = await db.transaction([
         { sql: "INSERT INTO events_v1(scope,uuid,event) VALUES(?,?,?) ON CONFLICT(scope,uuid) DO NOTHING",
           params: [scope, id, JSON.stringify({ id, distinctId, ...fields })] },
@@ -90,7 +107,7 @@ export function exactOutbox(scope: string, capacity: number, overhead: number,
         overflow = true;
         report(new BirdwatchError("queue_full", "Dropped the oldest queued event."));
       }
-      return { id: encoded.id };
+      return encoded.id;
     });
   }
   async function replay(db: Database, at: number, background: boolean, bound?: string): Promise<typeof empty> {
@@ -159,5 +176,5 @@ export function exactOutbox(scope: string, capacity: number, overhead: number,
     running = active;
     return running;
   }
-  return { enqueue, flush };
+  return { enqueue, identify, flush };
 }

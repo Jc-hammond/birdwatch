@@ -6,12 +6,9 @@ import android.net.Network;
 import android.os.SystemClock;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import java.io.Closeable;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
@@ -27,31 +24,7 @@ import java.util.function.LongSupplier;
 import org.json.JSONArray;
 
 /** Native Android analytics. Keep one client alive per collector/project for the app's lifetime. */
-public final class Birdwatch implements Closeable {
-  public static final class Receipt {
-    private final String id;
-    private final int accepted, duplicates;
-
-    Receipt(String id, int accepted, int duplicates) {
-      this.id = id;
-      this.accepted = accepted;
-      this.duplicates = duplicates;
-    }
-
-    @NonNull
-    public String getId() {
-      return id;
-    }
-
-    public int getAccepted() {
-      return accepted;
-    }
-
-    public int getDuplicates() {
-      return duplicates;
-    }
-  }
-
+public final class Birdwatch {
   public static final class Builder {
     private final Context context;
     private final String host, writeKey;
@@ -103,15 +76,6 @@ public final class Birdwatch implements Closeable {
     }
   }
 
-  private static final class Pending {
-    final Outbox.Row row;
-    final List<CompletableFuture<Receipt>> receipts = new ArrayList<>();
-
-    Pending(Outbox.Row row) {
-      this.row = row;
-    }
-  }
-
   private static final class Barrier {
     final long through;
     final CompletableFuture<Void> result;
@@ -127,14 +91,13 @@ public final class Birdwatch implements Closeable {
   }
 
   private final Builder settings;
-  private final Consumer<Throwable> onError;
+  private volatile Consumer<Throwable> onError;
   private final Collector collector;
   private final Outbox outbox;
   private final ScheduledThreadPoolExecutor state =
       new ScheduledThreadPoolExecutor(1, runnable -> new Thread(runnable, "Birdwatch-storage"));
   private final ExecutorService io =
       Executors.newFixedThreadPool(2, runnable -> new Thread(runnable, "Birdwatch-network"));
-  private final TreeMap<Long, Pending> waiting = new TreeMap<>();
   private final List<Barrier> barriers = new ArrayList<>();
   private final Runnable unregisterBackground;
   private ConnectivityManager manager;
@@ -193,68 +156,31 @@ public final class Birdwatch implements Closeable {
         });
   }
 
-  /** Local commit receipt. Safe to await while offline. */
+  /** Completes when SQLite commits the event. The caller may safely be offline. */
   @NonNull
-  public CompletableFuture<String> enqueue(@NonNull Event event) {
-    return local(
-        () -> {
-          Outbox.Row row = outbox.put(event);
-          schedule(settings.flushInterval);
-          return row.id;
-        });
+  public CompletableFuture<String> capture(@NonNull String name, @Nullable Map<String, ?> properties,
+      @Nullable String id, @Nullable Long timestampMillis) {
+    Event event = new Event(name, properties, id == null ? UUID.randomUUID().toString() : id,
+        timestampMillis == null ? settings.wall.getAsLong() : timestampMillis);
+    return local(() -> {
+      Outbox.Row row = outbox.put(event);
+      schedule(settings.flushInterval);
+      return row.id;
+    });
   }
 
   @NonNull
-  public CompletableFuture<String> enqueue(
-      @NonNull String name, @Nullable Map<String, ?> properties) {
-    return enqueue(new Event(name, properties));
+  public CompletableFuture<String> capture(@NonNull String name, @Nullable Map<String, ?> properties) {
+    return capture(name, properties, null, null);
   }
 
   @NonNull
-  public CompletableFuture<String> enqueue(@NonNull String name) {
-    return enqueue(name, Collections.emptyMap());
+  public CompletableFuture<String> capture(@NonNull String name) {
+    return capture(name, null);
   }
 
-  /** Collector receipt. A failed request leaves the committed event eligible for replay. */
-  @NonNull
-  public CompletableFuture<Receipt> capture(@NonNull Event event) {
-    return submit(result -> capture(event, result));
-  }
-
-  private void capture(Event event, CompletableFuture<Receipt> result) {
-    Outbox.Row row = outbox.put(event);
-    if (paused) {
-      result.completeExceptionally(new IllegalStateException("Delivery paused for unknown key"));
-      return;
-    }
-    waiting.computeIfAbsent(row.sequence, ignored -> new Pending(row)).receipts.add(result);
-    schedule(settings.flushInterval);
-  }
-
-  @NonNull
-  public CompletableFuture<Receipt> capture(
-      @NonNull String name, @Nullable Map<String, ?> properties) {
-    return capture(new Event(name, properties));
-  }
-
-  @NonNull
-  public CompletableFuture<Receipt> capture(@NonNull String name) {
-    return capture(name, Collections.emptyMap());
-  }
-
-  @NonNull
-  public CompletableFuture<Receipt> screen(@NonNull String name) {
-    long when = settings.wall.getAsLong();
-    String id = UUID.randomUUID().toString();
-    return submit(
-        result ->
-            capture(
-                new Event(
-                    "screen_view",
-                    Collections.singletonMap("screen", Event.field(name, "screen", 256)),
-                    id,
-                    when),
-                result));
+  public void onError(@NonNull Consumer<Throwable> handler) {
+    onError = java.util.Objects.requireNonNull(handler);
   }
 
   @NonNull
@@ -276,23 +202,16 @@ public final class Birdwatch implements Closeable {
         });
   }
 
-  @NonNull
-  public CompletableFuture<String> distinctId() {
-    return local(() -> outbox.identity());
-  }
-
   /** Wait for events already committed at this call's position in the local queue. */
   @NonNull
   public CompletableFuture<Void> flush() {
     return submit(
         result -> {
-          if (paused) {
-            result.completeExceptionally(
-                new IllegalStateException("Delivery paused for unknown key"));
+          if (paused || retryAt > settings.elapsed.getAsLong()) {
+            result.complete(null);
             return;
           }
           long last = outbox.lastSequence();
-          if (!waiting.isEmpty()) last = Math.max(last, waiting.lastKey());
           if (last == 0) {
             result.complete(null);
             return;
@@ -371,22 +290,14 @@ public final class Birdwatch implements Closeable {
     }
   }
 
-  private void failReceipts(Throwable error) {
-    while (!waiting.isEmpty()) settle(waiting.firstKey(), null, error);
-  }
-
   private void corrupt(Throwable error) {
     active.clear();
     retry.clear();
-    failReceipts(error);
     settleBarriers(Long.MAX_VALUE, error);
     report(error);
   }
 
   private void evicted(long through) {
-    IllegalStateException error = new IllegalStateException("Outbox full; event was dropped");
-    while (!waiting.isEmpty() && waiting.firstKey() <= through)
-      settle(waiting.firstKey(), null, error);
     retry.removeIf(row -> row.sequence <= through);
     for (Attempt a : active) a.pending.removeIf(seq -> seq <= through);
   }
@@ -394,10 +305,6 @@ public final class Birdwatch implements Closeable {
   private List<Outbox.Row> nextBatch() {
     if (!retry.isEmpty()) return new ArrayList<>(retry);
     List<Outbox.Row> rows = outbox.batch();
-    Map.Entry<Long, Pending> oldest = waiting.firstEntry();
-    // Replay a missing waiting row so a second client cannot strand its receipt.
-    if (oldest != null && (rows.isEmpty() || oldest.getKey() < rows.get(0).sequence))
-      return Collections.singletonList(oldest.getValue().row);
     return collector.fit(rows);
   }
 
@@ -451,15 +358,11 @@ public final class Birdwatch implements Closeable {
       } else if (active.stream().anyMatch(other -> other.pending.contains(row.sequence))) {
         continue;
       } else if (retry.stream().noneMatch(r -> r.sequence == row.sequence)) retry.add(row);
-      settle(
-          row.sequence,
-          error == null ? new Receipt(row.id, ack.accepted, ack.duplicates) : null,
-          error);
+
     }
     if (ack.error != null) settleBarriers(Long.MAX_VALUE, ack.error);
     if (ack.error != null && (ack.terminal || (ack.pause && !paused))) report(ack.error);
     paused |= ack.pause;
-    if (ack.pause) failReceipts(ack.error);
     if (paused) return;
     if (ack.terminal && retry.isEmpty()) {
       backoff = 1000;
@@ -474,47 +377,36 @@ public final class Birdwatch implements Closeable {
     send(false);
   }
 
-  private void settle(long sequence, Receipt receipt, Throwable error) {
-    Pending pending = waiting.remove(sequence);
-    if (pending == null) return;
-    for (CompletableFuture<Receipt> future : pending.receipts) {
-      if (error == null) future.complete(receipt);
-      else future.completeExceptionally(error);
-    }
-  }
-
   private void settleBarriers(long firstRemaining, Throwable error) {
     for (Barrier barrier : barriers) {
-      if (error != null) barrier.result.completeExceptionally(error);
-      else if (barrier.through < firstRemaining) barrier.result.complete(null);
+      if (error != null || barrier.through < firstRemaining) barrier.result.complete(null);
     }
     barriers.removeIf(barrier -> barrier.result.isDone());
   }
 
-  /** Stop collecting and release resources. Previously accepted local writes finish in order. */
-  @Override
-  public synchronized void close() {
-    if (!accepting) return;
+  /** Flush once, then release all resources. Safe to call more than once. */
+  public synchronized CompletableFuture<Void> close() {
+    if (!accepting) return closed;
+    CompletableFuture<Void> flushed = flush();
     accepting = false;
-    state.execute(
-        () -> {
-          stopped = true;
-          cancelTimer();
-          if (listener != null) {
-            try {
-              manager.unregisterNetworkCallback(listener);
-            } catch (RuntimeException e) {
-              report(e);
-            }
-          }
-          unregisterBackground.run();
-          IllegalStateException closed = new IllegalStateException("Birdwatch client is closed");
-          failReceipts(closed);
-          settleBarriers(Long.MAX_VALUE, closed);
-          io.shutdown();
-          outbox.close();
-          state.shutdown();
-          this.closed.complete(null);
-        });
+    flushed.whenComplete((ignored, error) -> stop());
+    return closed;
+  }
+
+  synchronized CompletableFuture<Void> stop() {
+    accepting = false;
+    state.execute(() -> {
+      stopped = true;
+      cancelTimer();
+      try {
+        if (listener != null) manager.unregisterNetworkCallback(listener);
+      } catch (RuntimeException e) { report(e); }
+      try { unregisterBackground.run(); } catch (RuntimeException e) { report(e); }
+      io.shutdown();
+      try { outbox.close(); closed.complete(null); }
+      catch (RuntimeException e) { closed.completeExceptionally(e); }
+      finally { state.shutdown(); }
+    });
+    return closed;
   }
 }
