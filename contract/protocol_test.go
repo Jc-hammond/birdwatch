@@ -92,14 +92,14 @@ func TestBatchResults(t *testing.T) {
 			if mode == "atomic" {
 				body["atomic"] = true
 				r := s.capture(t, p, body, 400)
-				check(t, "stored", s.overview(t, p, 7).Current[0], float64(0))
+				check(t, "stored", len(s.captureRows(t, p)), 0)
 				failure := errorBody(t, r)
 				check(t, "error code", failure.Code, "invalid_event")
 				rejected = failure.Rejected
 			} else {
 				r := s.capture(t, p, body, 200)
 				rejected = expectCounts(t, r, 2, 0).Rejected
-				rows := decode[struct{ Rows []struct{ Event string } }](t, s.report(t, p, "events")).Rows
+				rows := s.captureRows(t, p)
 				var names []string
 				for _, row := range rows {
 					names = append(names, row.Event)
@@ -138,14 +138,12 @@ func TestCaptureClock(t *testing.T) {
 			r := s.capture(t, p, batch, 200)
 			after := time.Now().UTC()
 			expectCounts(t, r, 1, 0)
-			events := decode[struct {
-				Rows []struct{ Timestamp time.Time }
-			}](t, s.report(t, p, "events"))
-			if len(events.Rows) != 1 {
+			events := s.captureRows(t, p)
+			if len(events) != 1 {
 				t.Fatal("expected one stored event in the report")
 			}
 			// Allow second-resolution timestamps, using only the capture round trip as the receipt window.
-			stored := events.Rows[0].Timestamp
+			stored := events[0].Timestamp
 			if stored.Before(before.Add(-age).Truncate(time.Second)) || stored.After(after.Add(-age)) {
 				t.Errorf("stored time %s outside the expected receipt window for age %s", stored, age)
 			}
@@ -160,7 +158,7 @@ func TestTextPlainCapture(t *testing.T) {
 	body["api_key"] = p.key
 	r := s.expect(t, 200, "POST", "/api/capture", body, http.Header{"Content-Type": {"text/plain"}})
 	expectCounts(t, r, 1, 0)
-	check(t, "stored", s.overview(t, p, 7).Current[0], float64(1))
+	check(t, "stored", len(s.captureRows(t, p)), 1)
 }
 
 func TestCapturePreflight(t *testing.T) {
