@@ -265,7 +265,7 @@ func (q report) peoplePage() (string, []any) {
 	}
 	query += ` ORDER BY last_ts DESC,distinct_id LIMIT 31)
  SELECT c.distinct_id,SUM(d.count) n,MIN(d.first_ts) first_seen,c.last_ts last_seen
- FROM candidates c JOIN daily_people d ON d.project_id=? AND d.distinct_id=c.distinct_id AND d.day BETWEEN ? AND ?
+ FROM candidates c CROSS JOIN daily_people d ON d.project_id=? AND d.distinct_id=c.distinct_id AND d.day BETWEEN ? AND ?
  GROUP BY c.distinct_id,c.last_ts ORDER BY last_seen DESC,c.distinct_id`
 	return query, append(args, q.id, q.start.Format(time.DateOnly), q.cursor.AsOf[:10])
 }
@@ -281,11 +281,13 @@ func (q report) funnel() (any, error) {
 	// The earliest first step maximizes the opportunity to convert. Order ties by insertion.
 	var entered, converted int64
 	err := q.db.QueryRow(`WITH starts AS (
- SELECT distinct_id,timestamp,id,ROW_NUMBER() OVER(PARTITION BY distinct_id ORDER BY timestamp,id) AS rank
- FROM events WHERE project_id=? AND event=? AND timestamp BETWEEN ? AND ?)
+ SELECT distinct_id,MIN(timestamp) ts FROM events INDEXED BY events_funnel
+ WHERE project_id=? AND event=? AND timestamp BETWEEN ? AND ? GROUP BY distinct_id)
  SELECT COUNT(*),COALESCE(SUM(EXISTS(SELECT 1 FROM events e WHERE e.project_id=? AND e.distinct_id=s.distinct_id
- AND e.event=? AND (e.timestamp,e.id)>(s.timestamp,s.id) AND e.timestamp<=?)),0) FROM starts s WHERE rank=1`,
-		q.id, first, q.start.Format(stamp), q.cursor.AsOf, q.id, second, q.cursor.AsOf).Scan(&entered, &converted)
+ AND e.event=? AND e.timestamp BETWEEN s.ts AND ? AND (e.timestamp>s.ts OR e.id>(
+ SELECT MIN(id) FROM events a WHERE a.project_id=e.project_id AND a.distinct_id=e.distinct_id
+ AND a.event=? AND a.timestamp=s.ts)))),0) FROM starts s`,
+		q.id, first, q.start.Format(stamp), q.cursor.AsOf, q.id, second, q.cursor.AsOf, first).Scan(&entered, &converted)
 	return record{"entered": entered, "converted": converted}, err
 }
 
@@ -299,7 +301,7 @@ func metrics(n, people, pages int64) [4]float64 {
 
 // A historical comparison can end halfway through a UTC day. Only that
 // boundary needs raw timestamps; all complete days come from the summaries.
-func (q report) eventDays(start, end time.Time) (string, []any, error) {
+func (q report) eventDays(start, end time.Time) (string, []any, bool, error) {
 	day := end.Format(time.DateOnly)
 	next := end.Truncate(24*time.Hour).AddDate(0, 0, 1).Format(stamp)
 	var partial bool
@@ -311,7 +313,7 @@ func (q report) eventDays(start, end time.Time) (string, []any, error) {
 		query += " UNION ALL SELECT substr(timestamp,1,10),event,COUNT(*) FROM events WHERE " + inWindow + " GROUP BY event"
 		args = append(args, q.id, end.Truncate(24*time.Hour).Format(stamp), end.Format(stamp))
 	}
-	return "WITH counts AS (" + query + ") ", args, err
+	return "WITH counts AS (" + query + ") ", args, partial, err
 }
 
 func (q report) overview(end time.Time) (any, error) {
@@ -319,11 +321,22 @@ func (q report) overview(end time.Time) (any, error) {
 	for i, field := range []string{"current", "previous"} {
 		shift := -i * q.days
 		start, stop := q.start.AddDate(0, 0, shift), end.AddDate(0, 0, shift)
-		counts, args, err := q.eventDays(start, stop)
+		counts, args, partial, err := q.eventDays(start, stop)
 		if err != nil {
 			return nil, err
 		}
-		rows, err := records(q.db, counts+"SELECT day,SUM(count) n,SUM(CASE WHEN event IN ('page_view','$pageview') THEN count ELSE 0 END) pages FROM counts GROUP BY day", args...)
+		daily := "SELECT day,SUM(count) n,SUM(CASE WHEN event IN ('page_view','$pageview') THEN count ELSE 0 END) pages FROM counts GROUP BY day"
+		visitors := "0"
+		dailyArgs := append([]any{}, args...)
+		if i == 0 {
+			visitors = "SELECT COUNT(*) FROM daily_people p WHERE p.project_id=? AND p.day=d.day"
+			dailyArgs = append(dailyArgs, q.id)
+			if partial {
+				visitors += " AND (p.day<? OR p.first_ts<=?)"
+				dailyArgs = append(dailyArgs, stop.Format(time.DateOnly), stop.Format(stamp))
+			}
+		}
+		rows, err := records(q.db, counts+"SELECT d.*,("+visitors+") people FROM ("+daily+") d", dailyArgs...)
 		if err != nil {
 			return nil, err
 		}
@@ -333,12 +346,17 @@ func (q report) overview(end time.Time) (any, error) {
 			events, views := row["n"].(int64), row["pages"].(int64)
 			n += events
 			pages += views
-			days[row["day"].(string)] = metrics(events, 0, views)
+			days[row["day"].(string)] = metrics(events, row["people"].(int64), views)
 		}
-		window := "project_id=? AND day BETWEEN ? AND ? AND (day<? OR first_ts<=?)"
-		bounds := []any{q.id, start.Format(time.DateOnly), stop.Format(time.DateOnly), stop.Format(time.DateOnly), stop.Format(stamp)}
+		window := "project_id=? AND day BETWEEN ? AND ?"
+		bounds := []any{q.id, start.Format(time.DateOnly), stop.Format(time.DateOnly)}
+		if partial {
+			window += " AND (day<? OR first_ts<=?)"
+			bounds = append(bounds, stop.Format(time.DateOnly), stop.Format(stamp))
+		}
 		if n > 0 {
-			err = q.db.QueryRow("SELECT COUNT(DISTINCT distinct_id) FROM daily_people WHERE "+window, bounds...).Scan(&people)
+			// Visit each person's days consecutively, avoiding a temporary table for DISTINCT.
+			err = q.db.QueryRow("SELECT COUNT(DISTINCT distinct_id) FROM daily_people INDEXED BY sqlite_autoindex_daily_people_1 WHERE "+window, bounds...).Scan(&people)
 			if err != nil {
 				return nil, err
 			}
@@ -346,15 +364,6 @@ func (q report) overview(end time.Time) (any, error) {
 		result[field] = metrics(n, people, pages)
 		if i != 0 {
 			continue
-		}
-		rows, err = records(q.db, "SELECT day,COUNT(*) n FROM daily_people WHERE "+window+" GROUP BY day", bounds...)
-		if err != nil {
-			return nil, err
-		}
-		for _, row := range rows {
-			day := row["day"].(string)
-			d := days[day]
-			days[day] = metrics(int64(d[0]), row["n"].(int64), int64(d[2]))
 		}
 		series := make([]record, q.days)
 		for j := range series {

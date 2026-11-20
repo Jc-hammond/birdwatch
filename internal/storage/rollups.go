@@ -20,7 +20,7 @@ CREATE TABLE daily_events (
 CREATE TABLE daily_people (
  project_id INTEGER NOT NULL REFERENCES projects(id), day TEXT NOT NULL, distinct_id TEXT NOT NULL,
  count INTEGER NOT NULL, first_ts TEXT NOT NULL, last_ts TEXT NOT NULL, PRIMARY KEY(project_id,distinct_id,day)
-) WITHOUT ROWID;
+);
 CREATE INDEX daily_people_day ON daily_people(project_id,day);
 CREATE INDEX daily_people_recent ON daily_people(project_id,last_ts DESC,distinct_id);
 CREATE INDEX events_funnel ON events(project_id,event,distinct_id,timestamp,id);
