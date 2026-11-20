@@ -31,7 +31,7 @@ analytics.enqueue(checkout).whenComplete { eventId, error ->
 | Method | Completion |
 | --- | --- |
 | `enqueue(event)` | The event ID after the local SQLite transaction commits, including offline. |
-| `capture(event)` | A collector receipt with `id`, `accepted`, and `duplicates`. The SDK saves the event before sending. |
+| `capture(event)` | A collector receipt with the event ID and the accepted and duplicate counts for its batch. The SDK saves the event before sending. |
 | `screen(name)` | A collector receipt for a `screen_view` event. |
 | `identify(person)`, `reset()`, `distinctId()` | Set, rotate, or read the project’s persistent identity. Earlier events keep their original identity. |
 | `flush()` | Delivery of the events outstanding when the flush reaches the local queue. A failed request completes the future exceptionally. |
@@ -48,9 +48,9 @@ Use asynchronous callbacks or your app’s coroutine integration for futures. Mo
 
 ## Offline delivery
 
-The outbox lives in the app’s no-backup directory. Opening the client, a network availability callback, and a retry timer all trigger replay. If connectivity returns while the process is stopped, opening the client on its next launch resumes delivery. A lost acknowledgement can produce a second request with the same ID. Birdwatch records the occurrence once. HTTP 400 and 413 retire an invalid event. Failed authentication, transient responses, and malformed acknowledgements retain the event. The SDK honors Retry-After on 429 and 503.
+Events commit to SQLite in the app’s no-backup directory. The SDK sends up to 100 events per request. Each retry preserves the original ID, timestamp and properties. Opening the client, regaining connectivity or backgrounding the final activity triggers delivery. Unknown keys pause delivery and retain queued events until the next open. Network errors and unrecognised responses retry with full jitter, respecting Retry-After up to five minutes.
 
-Queue capacity defaults to 1,000 events per collector and write key. A full queue or storage failure rejects the new write and preserves existing entries. Configure `Birdwatch.Builder(context, host, writeKey)` with `maxQueueSize`, `timeoutMillis` (default 5,000), and `onError` to observe replay failures and rejected events.
+Queue capacity defaults to 1,000 events per collector and write key. Overflow drops the oldest events and reports once until delivery frees space. A damaged database is moved aside before collection resumes. The builder’s `onError` receives invalid input, rejection, overflow and storage errors. Invalid input completes the returned future exceptionally, including when passed in an explicitly constructed `Event`. Configure `maxQueueSize` and `timeoutMillis` (default 5,000) on the builder.
 
 ## Local development
 
@@ -58,4 +58,4 @@ Use `http://10.0.2.2:8123` to reach a host-machine collector from the standard A
 
 ## Build from source
 
-In the source release, open `sdks/android/` in Android Studio, or run `./gradlew assembleRelease` there with JDK 17 and Android SDK Platform 35 installed. The AAR is written to `build/outputs/aar/`. Run `./gradlew connectedDebugAndroidTest` with an emulator or test device connected. The SDK uses the Birdwatch MIT license. The Gradle wrapper’s license and notices are in `gradle/wrapper/`.
+In the source release, open `sdks/android/` in Android Studio, or run `./gradlew assembleRelease` there with JDK 17 and Android SDK Platform 35 installed. The AAR is written to `build/outputs/aar/`. Run `./gradlew testDebugUnitTest` with Node available to exercise the shared scenarios on the JVM. The SDK uses Android’s connection pool. Its JVM test driver substitutes an HTTP client and runs against the same local collector as the other SDKs. The SDK uses the Birdwatch MIT license. The Gradle wrapper’s license and notices are in `gradle/wrapper/`.

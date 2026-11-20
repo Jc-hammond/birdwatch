@@ -27,10 +27,7 @@
   ],
   "react-native": "./dist/index.js",
   "peerDependencies": {
-    "react-native": ">=0.83.0",
+    "react-native": ">=0.65.0 <1.0",
     "@react-native-async-storage/async-storage": "^2.2.0"
-  },
-  "dependencies": {
-    "@birdwatch/sdk": "0.1.0"
   }
 }

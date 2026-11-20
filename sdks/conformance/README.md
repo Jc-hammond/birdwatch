@@ -8,4 +8,6 @@ Run `node --test sdks/conformance/web.test.mjs` from the repository root after b
 
 The web driver uses the Node entry point for transport scenarios and the browser entry point for storage and page lifecycle scenarios. `web-gaps.json` names observed failures. A listed scenario still executes, and a newly passing scenario must leave the list.
 
+React Native runs the same JSON cases through its packaged CommonJS entry, an AsyncStorage adapter, AppState callbacks and the local collector. Run `node --test sdks/conformance/native.test.mjs` after `make js-sdk`.
+
 On macOS, `make test-swift` uses the same scenarios, HTTP collector and assertions. Its driver runs the Swift SDK in a child process, advances the SDK clock, restarts the process with the same SQLite outbox, and triggers the background flush.

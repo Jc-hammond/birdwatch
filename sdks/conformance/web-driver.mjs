@@ -5,7 +5,8 @@ import { setImmediate as nextTurn, setTimeout as sleep } from "node:timers/promi
 const bundle = await readFile(new URL("../../sdk/dist/index.cjs", import.meta.url), "utf8");
 
 export class WebDriver {
-  constructor(collector, config = {}) {
+  constructor(collector, config = {}, nativeBundle) {
+    this.nativeBundle = nativeBundle;
     this.collector = collector;
     this.config = config;
     this.now = Date.UTC(2026, 0, 1);
@@ -15,7 +16,7 @@ export class WebDriver {
     this.online = true;
     this.generation = 0;
     this.pending = 0;
-    this.start();
+    this.ready = this.start();
   }
 
   start() {
@@ -71,6 +72,29 @@ export class WebDriver {
       clearTimeout: id => timers.delete(id),
     };
     if (this.config.browser) Object.assign(context, {window,document,navigator,localStorage:window.localStorage});
+    if (this.nativeBundle) {
+      const storage = {
+        getItem: async key => this.storage.get(key) ?? null,
+        setItem: async (key,value) => { this.storage.set(key,value); },
+        removeItem: async key => { this.storage.delete(key); },
+        multiGet: async keys => keys.map(k => [k,this.storage.get(k) ?? null]),
+        multiRemove: async keys => { for (const k of keys) this.storage.delete(k); },
+      };
+      context.require = name => {
+        if (name === "@react-native-async-storage/async-storage") return storage;
+        if (name === "react-native") return {AppState: {addEventListener: (_,listener) => {
+          this.background = () => listener("background");
+          return {remove: () => { this.background=undefined; }};
+        }}};
+        throw Error("Unexpected React Native runtime dependency: " + name);
+      };
+      runInNewContext("Math.random = nextJitter;\n" + this.nativeBundle, context);
+      return module.exports.createReactNativeClient({
+        host: this.collector.host, writeKey:"test", batchSize:100, flushIntervalMs:60000,
+        randomUUID:()=>crypto.randomUUID(), maxQueueSize:this.config.capacity ?? 1000,
+        fetch:send, onError:error=>this.errors.push(error.code),
+      }).then(client=>{this.client=client;});
+    }
     runInNewContext("Math.random = nextJitter;\n" + bundle, context);
     const factory = this.config.browser ? module.exports.createBrowserClient : module.exports.createServerClient;
     this.client = factory({
@@ -81,9 +105,10 @@ export class WebDriver {
     this.document = document;
   }
 
-  capture(id) {
+  async capture(id) {
     const name = this.config.generatedIds ? id : "example";
     const options = this.config.generatedIds ? {} : {id};
+    if (this.nativeBundle) { await this.client.enqueue(name,{},options); return; }
     const result = this.config.browser
       ? this.client.capture(name, {}, options)
       : this.client.capture({event:name,distinctId:"test",...options});
@@ -122,9 +147,13 @@ export class WebDriver {
   }
 
   async step(step) {
-    if (step.capture) for (const id of step.capture) this.capture(id);
+    await this.ready;
+    if (step.capture) for (const id of step.capture) await this.capture(id);
     else if (step.advanceMs !== undefined) await this.advance(step.advanceMs);
-    else if (step.clockAheadMs !== undefined) this.now += step.clockAheadMs;
+    else if (step.clockAheadMs !== undefined) {
+      this.now += step.clockAheadMs;
+      for (const timer of this.timers.values()) timer.time += step.clockAheadMs;
+    }
     else switch (step) {
       case "flush": this.flush(); break;
       case "offline": this.online = false; break;
@@ -132,15 +161,19 @@ export class WebDriver {
       case "release": this.collector.release(); break;
       case "hide": {
         const before = this.requests.length;
-        this.document.visibilityState = "hidden";
-        this.document.dispatchEvent(new Event("visibilitychange"));
+        if (this.nativeBundle) this.background();
+        else {
+          this.document.visibilityState = "hidden";
+          this.document.dispatchEvent(new Event("visibilitychange"));
+        }
         await this.settle();
         this.unloadDelivery = this.collector.held > 0 && this.requests.slice(before).some(req => req.keepalive === true);
         break;
       }
       case "restart":
-        this.start();
+        this.ready = this.start();
         this.collector.release();
+        await this.ready;
         break;
       case "corruptOutbox": {
         // Locate the stored test event by UUID, independent of the SDK's storage key.
