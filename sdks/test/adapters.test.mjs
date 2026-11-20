@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { createExactClient } from "../exact/dist/index.js";
 
@@ -32,6 +33,7 @@ function nativeAdapter() {
   )(module, module.exports, (name) => {
     if (name === "@react-native-async-storage/async-storage")
       return { getItem: async () => null, setItem: async () => {} };
+    if (name === "@birdwatch/sdk/internal") return createRequire(import.meta.url)(name);
     assert.equal(name, "react-native");
     return { AppState };
   });

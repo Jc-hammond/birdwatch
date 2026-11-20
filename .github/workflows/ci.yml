@@ -37,7 +37,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-      - name: Test the JavaScript packages and build the dashboard
+      - name: Test the JavaScript packages and compile the dashboard
         run: make test-js && make check-clean
 
   native:

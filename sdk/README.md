@@ -10,7 +10,7 @@ Open your project in Birdwatch and select **Setup** → **Browser SDK** or **Nod
 npm install ./birdwatch-sdk-0.1.0.tgz
 ```
 
-Each example in **Setup** includes your server URL and project write key. The key lets clients send events. The same archive is also available in the source release at `ui/public/assets/birdwatch-sdk-0.1.0.tgz`.
+Each example in **Setup** includes your server URL and project write key. The key lets clients send events. Running `make build` from the repository root generates the same archive at `ui/public/assets/birdwatch-sdk-0.1.0.tgz`.
 
 ## Browser
 

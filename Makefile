@@ -3,8 +3,7 @@ PYTHON ?= python3
 
 .PHONY: build test lint release js-sdk dashboard archives android-release test-server test-js test-swift test-android check-clean
 
-build: archives
-	npm run build --workspace birdwatch-ui
+build: dashboard
 	mkdir -p build
 	CGO_ENABLED=0 $(GO) build -o build/birdwatch ./cmd/birdwatch
 
@@ -22,11 +21,15 @@ android-release:
 archives: js-sdk android-release
 	node sdks/artifacts.mjs --pack
 
-dashboard: node_modules/.birdwatch-installed
+dashboard: archives
 	npm run build --workspace birdwatch-ui
 
-test: build
-	$(MAKE) test-server test-js test-swift test-android
+# Compare tracked changes across the run so tests also work with local edits.
+test:
+	@before=$$(git diff --binary HEAD | git hash-object --stdin); \
+	$(MAKE) build lint test-server test-js test-swift test-android && \
+	test "$$before" = "$$(git diff --binary HEAD | git hash-object --stdin)" || \
+	{ echo "Tests failed or tracked files changed during the run." >&2; exit 1; }
 
 test-server:
 	BIRDWATCH_REFERENCE=python BIRDWATCH_SERVER_CMD="$(PYTHON) server.py" $(GO) test -count=1 ./...
@@ -34,7 +37,7 @@ test-server:
 test-js: js-sdk
 	npm test --workspace @birdwatch/sdk
 	node --test sdks/test/*.test.mjs
-	$(MAKE) dashboard
+	npm run build --workspace birdwatch-ui -- --outDir ../build/ui-check
 
 test-swift:
 	cd sdks/swift && swift build && swift test

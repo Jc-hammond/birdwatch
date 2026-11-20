@@ -114,7 +114,7 @@ sqlite3 data/birdwatch.sqlite3 ".backup 'birdwatch-backup.sqlite3'"
 
 ## Develop
 
-Install Make, Go 1.22+, Node.js 24 with npm, Python 3.9+ with SQLite, JDK 17, Android SDK Platform 35, tar and zip. Set `JAVA_HOME` and `ANDROID_HOME` to their installation paths. The Swift tests require macOS with the Swift 5.9+ toolchain.
+Install Make, Go 1.22+, Node.js 24 with npm, Python 3.9+ with SQLite 3.25+, JDK 17, Android SDK Platform 35, tar and zip. Set `JAVA_HOME` and `ANDROID_HOME` to their installation paths. The Swift tests require macOS with the Swift 5.9+ toolchain.
 
 ```sh
 make build    # build SDK archives, dashboard, and build/birdwatch

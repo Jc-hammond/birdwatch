@@ -188,7 +188,7 @@ def main():
     if not local_host(args.host) and not password:
         parser.error("Set BIRDWATCH_PASSWORD before binding to a network interface")
     if not (ROOT/"static"/"index.html").exists():
-        parser.error("Missing dashboard bundle. Run npm ci and npm run build inside ui/")
+        parser.error("Missing dashboard bundle. Run make build from the project directory")
     with ThreadingHTTPServer((args.host,args.port), Handler) as server:
         server.database, server.password = args.db, password
         initialize(args.db, not args.no_demo)
