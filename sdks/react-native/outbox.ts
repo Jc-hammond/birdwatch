@@ -1,7 +1,6 @@
 // AsyncStorage replaces a single value atomically. Keep the whole snapshot below
 // Android's per-row read limit and serialize read/modify/write across client instances.
-import { utf8Length } from "../../sdk/src/utf8.js";
-import { BirdwatchError } from "../../sdk/src/types.js";
+import { BirdwatchError, utf8Length } from "@birdwatch/sdk/internal";
 
 export interface IdentityStorage {
   getItem(key: string): Promise<string | null>;

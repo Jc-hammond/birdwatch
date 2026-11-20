@@ -1,28 +1,30 @@
-import { utf8Length } from "../../sdk/src/utf8.js";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Outbox, type IdentityStorage, type WireEvent } from "./outbox.js";
 export type { IdentityStorage } from "./outbox.js";
 import { captureEndpoint } from "../endpoint.js";
 import { AppState } from "react-native";
-import { DeliveryQueue } from "../../sdk/src/queue.js";
-import { encodeEvent, stringField, invalid } from "../../sdk/src/event.js";
-import type {
-  ClientOptions,
-  CatalogShape,
-  EventCatalog,
-  EventName,
-  CaptureArgs,
-  CaptureOptions,
-  Lifecycle,
-  Receipt,
-} from "../../sdk/src/types.js";
-import { BirdwatchError } from "../../sdk/src/types.js";
+import {
+  BirdwatchError,
+  DeliveryQueue,
+  encodeEvent,
+  invalid,
+  stringField,
+  utf8Length,
+  type ClientOptions,
+  type CatalogShape,
+  type EventCatalog,
+  type EventName,
+  type CaptureArgs,
+  type CaptureOptions,
+  type Lifecycle,
+  type Receipt,
+} from "@birdwatch/sdk/internal";
 export { BirdwatchError };
 export type {
   Receipt,
   CaptureOptions,
   Properties,
-} from "../../sdk/src/types.js";
+} from "@birdwatch/sdk/internal";
 
 export interface NativeOptions extends ClientOptions {
   /** Defaults to AsyncStorage. Pass null for memory-only collection. */

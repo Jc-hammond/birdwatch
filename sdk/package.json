@@ -18,7 +18,17 @@
         "default": "./dist/index.cjs"
       }
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./internal": {
+      "import": {
+        "types": "./dist/types/internal.d.ts",
+        "default": "./dist/internal.js"
+      },
+      "require": {
+        "types": "./dist/types-cjs/internal.d.ts",
+        "default": "./dist/internal.cjs"
+      }
+    }
   },
   "sideEffects": false,
   "engines": {
@@ -33,11 +43,6 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "npm run build && tsc --project test/tsconfig.json && node --test test/*.test.mjs",
-    "sync": "npm run build && node scripts/sync.mjs",
     "test:integration": "node --test test/collector.mjs"
-  },
-  "devDependencies": {
-    "typescript": "5.9.3",
-    "esbuild": "0.28.1"
   }
 }

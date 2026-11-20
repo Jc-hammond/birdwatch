@@ -10,7 +10,7 @@ import {
   Plus,
   Terminal,
 } from "lucide-react";
-import sdkPackage from "../../sdk/package.json";
+import versions from "./generated/sdk-versions.json";
 import { api, DataState, Dialog, useData } from "./lib";
 
 function Snippet({ code }) {
@@ -133,7 +133,7 @@ export function Setup({ project, create, go }) {
       2
     ) +
     "'";
-  const archive = "birdwatch-sdk-" + sdkPackage.version + ".tgz";
+  const archive = "birdwatch-sdk-" + versions.web + ".tgz";
   const packageTab = tab === "Browser SDK" || tab === "Node.js";
   const browserSdk = `import { createBrowserClient } from "@birdwatch/sdk";
 
@@ -171,8 +171,8 @@ try {
   }
   const native = {
     Android: {
-      file: "birdwatch-android-0.2.0.aar",
-      install: 'dependencies {\n    implementation(files("libs/birdwatch-android-0.2.0.aar"))\n}',
+      file: `birdwatch-android-${versions.android}.aar`,
+      install: `dependencies {\n    implementation(files("libs/birdwatch-android-${versions.android}.aar"))\n}`,
       detail: "Save the AAR in app/libs and add the dependency to app/build.gradle.kts. The standard emulator reaches your computer at 10.0.2.2. For a physical device, use a reachable HTTPS collector.",
       example: `import dev.birdwatch.sdk.Birdwatch
 import dev.birdwatch.sdk.Event
@@ -182,9 +182,9 @@ client.identify("user-42")
 client.enqueue(Event("checkout_completed", mapOf("orderId" to "order-123"), "checkout:order-123"))`,
     },
     "React Native": {
-      file: "birdwatch-react-native-0.2.0.tgz",
+      file: `birdwatch-react-native-${versions.reactNative}.tgz`,
       install:
-        "npx expo install expo-crypto @react-native-async-storage/async-storage\nnpm install ./birdwatch-react-native-0.2.0.tgz",
+        `npx expo install expo-crypto @react-native-async-storage/async-storage\nnpm install ./birdwatch-react-native-${versions.reactNative}.tgz`,
       detail:
         "Initialize once at startup. Await enqueue to save an event even while offline.",
       example: `import { createReactNativeClient } from "@birdwatch/react-native";
@@ -199,8 +199,8 @@ await client.identify("user-42");
 await client.enqueue("checkout_completed", { orderId: "order-123" }, { id: "checkout:order-123" });`,
     },
     "Expo Exact": {
-      file: "birdwatch-exact-0.2.0.tgz",
-      install: "npm install ./birdwatch-exact-0.2.0.tgz",
+      file: `birdwatch-exact-${versions.exact}.tgz`,
+      install: `npm install ./birdwatch-exact-${versions.exact}.tgz`,
       detail:
         "The download includes a Contract app that commits locally, replays at launch, and retries while open. Replace its host and write key with these values.",
       example: `import { createExactClient } from "@birdwatch/exact";
@@ -209,7 +209,7 @@ export const grants = ${JSON.stringify("net.fetch " + origin + "\nsqlite.open ap
 const client = createExactClient({ ${clientConfig}, fetch });`,
     },
     Swift: {
-      file: "birdwatch-swift-0.2.0.zip",
+      file: `birdwatch-swift-${versions.swift}.zip`,
       detail:
         "Unzip the package, choose Add Local in Xcode’s package dependencies, then add the Birdwatch product to your target.",
       example: `import Foundation
@@ -292,7 +292,7 @@ try await client.enqueue("checkout_completed", properties: ["orderId": "order-12
               href={"/assets/" + archive}
               download={archive}
             >
-              <Download size={15} /> Download SDK · v{sdkPackage.version}
+              <Download size={15} /> Download SDK · v{versions.web}
             </a>
             <Snippet code={"npm install ./" + archive} />
             <h3>

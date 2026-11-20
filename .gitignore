@@ -12,3 +12,12 @@ node_modules/
 .build/
 .swiftpm/
 website/.openai/
+
+# Workspace build outputs
+/static/
+/ui/public/assets/
+/ui/public/birdwatch.js
+/ui/src/generated/
+/sdk/dist/
+/sdks/*/dist/
+/build/

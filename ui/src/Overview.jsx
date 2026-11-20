@@ -28,7 +28,7 @@ function Sparkline({ values, index }) {
     29 - ((n - low) / (high - low || 1)) * 23,
   ]);
   const line = points.map((point) => point.join(",")).join(" ");
-  const color = index % 2 ? "#c696ff" : "#ff721f";
+  const color = index % 2 ? "var(--violet)" : "var(--orange)";
   return (
     <svg className="spark" viewBox="0 0 86 40" aria-hidden="true">
       <defs>

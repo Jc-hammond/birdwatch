@@ -15,6 +15,6 @@ Use the same signed-in user ID across apps to see a person’s activity together
 
 ## Build and test the SDKs
 
-To rebuild the JS adapters from this source tree, run `npm ci` inside `sdk/`, then run `node sdks/build.mjs` from the project root. Use `npm pack` in each adapter directory to create its installable tarball. The Exact package includes a complete sample app.
+From the repository root, run `make js-sdk` to build the JavaScript adapters. Run `make build` to regenerate the offline downloads in `static/assets/`. The Exact package includes a complete sample app.
 
 After building, run `node --test sdks/test/*.test.mjs` from the project root. Run `swift test` from `sdks/swift/`.

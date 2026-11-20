@@ -10,13 +10,13 @@ One Python process serves the dashboard, browser script, and HTTP API. Events li
 
 ## Run locally
 
-From the project directory, run this command with Python 3.9+ and SQLite 3.25+.
+Build the source checkout with `make build` once using the tools listed under Develop. Start the Python reference server from the project directory.
 
 ```sh
 python3 server.py
 ```
 
-Open [Birdwatch on localhost](http://127.0.0.1:8123). The dashboard comes prebuilt.
+Open [Birdwatch on localhost](http://127.0.0.1:8123).
 
 1. Explore the read-only demo project, then select **Connect source** → **Create project**.
 2. On **Setup**, select **Send test event** to check that the server can receive events.
@@ -82,7 +82,7 @@ Reports use UTC calendar days. Overview compares the selected period with the sa
 
 ## Docker Compose
 
-With Docker and its Compose plugin installed, run these commands from the project directory.
+Run `make build` to prepare the dashboard and SDK downloads for the image. With Docker and its Compose plugin installed, run these commands from the project directory.
 
 ```sh
 export BIRDWATCH_PASSWORD="$(openssl rand -hex 24)"
@@ -114,16 +114,14 @@ sqlite3 data/birdwatch.sqlite3 ".backup 'birdwatch-backup.sqlite3'"
 
 ## Develop
 
-The Python server uses the standard library. The React dashboard lives in `ui/src/`, the browser and Node.js SDK lives in `sdk/`, and the server serves the built dashboard from `static/`.
-
-To rebuild the dashboard and run the server tests, start in the project directory.
+Install Make, Go 1.22+, Node.js 24 with npm, Python 3.9+ with SQLite 3.25+, JDK 17, Android SDK Platform 35, tar and zip. Set `JAVA_HOME` and `ANDROID_HOME` to their installation paths. The Swift tests require macOS with the Swift 5.9+ toolchain.
 
 ```sh
-cd ui
-npm ci
-npm run build
-cd ..
-python3 -m unittest discover -s tests -v
+make build    # build SDK archives, dashboard, and build/birdwatch
+make test     # build and run the server, JavaScript and native checks
+make lint     # Go vet, SDK types and whitespace
 ```
+
+The npm workspace installs its pinned tools from the root lockfile. The dashboard and offline downloads are generated into `static/`. The Go port currently provides the endpoints implemented so far. The Python reference serves the dashboard during the port.
 
 Birdwatch is available under the [MIT license](LICENSE). See [third-party notices](THIRD_PARTY_NOTICES.txt) for bundled dependencies.
