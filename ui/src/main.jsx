@@ -10,6 +10,9 @@ import {
   Layers3,
   List,
   Menu,
+  Monitor,
+  Moon,
+  Sun,
   Plug,
   Plus,
   Settings,
@@ -182,18 +185,21 @@ function ThemeSwitch() {
       // The selection still works for this page when storage is unavailable.
     }
   }
+  const Icon = theme === "system" ? Monitor : theme === "dark" ? Moon : Sun;
   return (
-    <select
-      className="theme-switch"
-      aria-label="Theme"
-      title="Theme"
-      value={theme}
-      onChange={(event) => change(event.target.value)}
-    >
-      <option value="system">System</option>
-      <option value="light">Light</option>
-      <option value="dark">Dark</option>
-    </select>
+    <label className="theme-control" title="Theme">
+      <Icon size={16} aria-hidden="true" />
+      <select
+        className="theme-switch"
+        aria-label="Theme"
+        value={theme}
+        onChange={(event) => change(event.target.value)}
+      >
+        <option value="system">System</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
+    </label>
   );
 }
 function App() {

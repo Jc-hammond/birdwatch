@@ -348,6 +348,9 @@ dd,
   align-items: center;
   gap: 12px;
 }
+.theme-control > svg {
+  display: none;
+}
 .theme-switch {
   font: inherit;
   font-size: 13px;
@@ -1438,11 +1441,22 @@ dd {
   }
 }
 @media (max-width: 420px) {
-  .breadcrumb span, .breadcrumb i {
-    display: none;
+  .header-settings { gap: 4px; }
+  .theme-control {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 28px;
+    border-radius: 4px;
   }
-  .header-settings {
-    gap: 8px;
+  .theme-control > svg { display: block; }
+  .theme-control:has(:focus-visible) { outline: 2px solid var(--focus); }
+  .theme-switch {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    opacity: 0;
   }
 }
 @media (prefers-reduced-motion: reduce) {
