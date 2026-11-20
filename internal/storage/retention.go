@@ -119,6 +119,13 @@ func ErasePerson(ctx context.Context, tx *sql.Tx, project int64, person string) 
  + coalesce((SELECT sum(n) FROM expired_counts WHERE project_id=?1 AND distinct_id=?2),0)`, project, person).Scan(&count); err != nil {
 		return 0, err
 	}
+	if count == 0 {
+		var remnants bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM daily_people WHERE project_id=?1 AND distinct_id=?2)
+ OR EXISTS(SELECT 1 FROM expired_receipts WHERE project_id=?1 AND distinct_id=?2)`, project, person).Scan(&remnants); err != nil || !remnants {
+			return 0, err
+		}
+	}
 	const subtract = `WITH contributions AS (
  SELECT substr(timestamp,1,10) day,event,count(*) n FROM events WHERE project_id=?1 AND distinct_id=?2 GROUP BY 1,2
  UNION ALL SELECT day,event,n FROM expired_counts WHERE project_id=?1 AND distinct_id=?2
@@ -126,7 +133,9 @@ func ErasePerson(ctx context.Context, tx *sql.Tx, project int64, person string) 
  UPDATE daily_events AS d SET count=count-t.n FROM totals t WHERE d.project_id=?1 AND d.day=t.day AND d.event=t.event`
 	for _, query := range []string{
 		subtract,
-		"UPDATE projects SET retention_revision=retention_revision+1,deleted_max_id=max(deleted_max_id,coalesce((SELECT max(id) FROM events WHERE project_id=?1 AND distinct_id=?2),0)) WHERE id=?1 AND EXISTS(SELECT 1 FROM daily_people WHERE project_id=?1 AND distinct_id=?2 UNION ALL SELECT 1 FROM events WHERE project_id=?1 AND distinct_id=?2)",
+		`UPDATE projects SET retention_revision=retention_revision+1,
+ deleted_max_id=max(deleted_max_id,coalesce((SELECT max(id) FROM events WHERE project_id=?1 AND distinct_id=?2),0))
+ WHERE id=?1`,
 		"DELETE FROM events WHERE project_id=? AND distinct_id=?",
 		"DELETE FROM expired_counts WHERE project_id=? AND distinct_id=?",
 		"DELETE FROM expired_receipts WHERE project_id=? AND distinct_id=?",

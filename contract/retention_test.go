@@ -21,10 +21,17 @@ func TestProjectRetention(t *testing.T) {
 		s.expect(t, 400, "PATCH", base, object{"retention_days": value}, nil)
 	}
 	s.expect(t, 200, "PATCH", base, object{"retention_days": 1}, nil)
+	paged := s.createProject(t, "Archived people")
+	var batch []object
+	for i := 0; i < 32; i++ {
+		batch = append(batch, object{"event": "old", "distinct_id": "guest" + strconv.Itoa(i), "timestamp": time.Now().UTC().AddDate(0, 0, -3)})
+	}
+	s.capture(t, paged, object{"batch": batch}, 200)
+	s.expect(t, 200, "PATCH", "/api/projects/"+strconv.Itoa(paged.id), object{"retention_days": 1}, nil)
 	s.stop()
 	s = start(t, path, false, "") // Startup runs the same sweep as the hourly timer.
 	deadline := time.Now().Add(10 * time.Second)
-	for rowCount(t, s.report(t, p, "events?name=old")) != 0 {
+	for rowCount(t, s.report(t, p, "events?name=old")) != 0 || rowCount(t, s.report(t, paged, "events")) != 0 {
 		if time.Now().After(deadline) {
 			t.Fatal("expired event remains after startup sweep")
 		}
@@ -38,6 +45,20 @@ func TestProjectRetention(t *testing.T) {
 	check(t, "unlimited", decode[object](t, s.report(t, p, "setup"))["retention_days"], nil)
 	s.expect(t, 200, "DELETE", base+"/people/subscriber", nil, nil)
 	check(t, "erased archived contributions", s.overview(t, p, 7).Current[0], float64(0))
+	first := decode[struct{ Next string }](t, s.report(t, paged, "people"))
+	if first.Next == "" {
+		t.Fatal("missing cursor for archived people")
+	}
+	later := "people?cursor=" + url.QueryEscape(first.Next)
+	rows := decode[struct{ Rows []object }](t, s.report(t, paged, later)).Rows
+	if len(rows) != 2 {
+		t.Fatalf("archived second page contains %d rows", len(rows))
+	}
+	person := rows[0]["distinct_id"].(string)
+	s.capture(t, paged, event("later", person), 200)
+	check(t, "snapshot after later capture", decode[struct{ Rows []object }](t, s.report(t, paged, later)).Rows, rows)
+	s.expect(t, 200, "DELETE", projectPath(paged.id, "people/"+url.PathEscape(person)), nil, nil)
+	check(t, "erased snapshot", errorBody(t, s.expect(t, 409, "GET", projectPath(paged.id, later), nil, nil)).Code, "cursor_expired")
 }
 
 func TestErasePerson(t *testing.T) {
