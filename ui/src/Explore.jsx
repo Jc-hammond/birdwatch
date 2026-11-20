@@ -73,6 +73,19 @@ function Results({ view, project, days, filters, go, inspect }) {
   );
   const state = cached ? { data: cached } : live;
   const rows = state.data?.rows;
+  const first = pages[0] ?? live.data;
+  const [lastPage, setLastPage] = useState(null);
+  useEffect(() => {
+    if (pageIndex && rows && !state.data.next)
+      setLastPage({ first, total: offset + rows.length });
+  }, [pageIndex, rows, state.data?.next, first, offset]);
+  const snapshotTotal = rows && !state.data.next ? offset + rows.length
+    : lastPage?.first === first ? lastPage?.total : undefined;
+  const unfiltered = !filters.q && !filters.person && !filters.name;
+  const overview = useData(unfiltered && rows && snapshotTotal == null
+    ? "/api/projects/" + project.id + "/overview?days=" + days : null, 0, project.sample_as_of ? 0 : 5000);
+  const currentTotal = overview.data?.current[isPeople ? 1 : 0];
+  const unit = (count) => isPeople ? (count === 1 ? "person" : "people") : (count === 1 ? "event" : "events");
   return (
     <>
       {state.error && <DataState state={state} />}
@@ -157,18 +170,12 @@ function Results({ view, project, days, filters, go, inspect }) {
       {rows && (
         <footer className="pagination">
           <span>
-            {rows.length > 1
-              ? offset + 1 + "–" + (offset + rows.length)
-              : rows.length
-              ? offset + 1
-              : "0"}{" "}
-            {isPeople
-              ? rows.length === 1
-                ? "person"
-                : "people"
-              : rows.length === 1
-              ? "event"
-              : "events"}
+            {rows.length ? int(offset + 1) + "–" + int(offset + rows.length) : "0"}
+            {snapshotTotal != null ? " of " + int(snapshotTotal) + " " + unit(snapshotTotal)
+              : currentTotal != null && !overview.error
+                ? " · " + int(currentTotal) + " " + unit(currentTotal) + (project.sample_as_of ? " in range" : " currently in range")
+                : " · at least " + int(offset + rows.length + 1) + " " + unit(offset + rows.length + 1)}
+
           </span>
           <div>
             <button
