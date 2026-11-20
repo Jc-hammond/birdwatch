@@ -1,10 +1,11 @@
-import { invalid, newId, stringField } from "./event.js";
+import { checkTraits, invalid, newId, stringField } from "./event.js";
 import { DeliveryQueue } from "./queue.js";
 import type {
   BrowserClient,
   BrowserOptions,
   CatalogShape,
   EventCatalog,
+  Properties,
 } from "./types.js";
 
 export function createBrowserClient<C extends CatalogShape<C> = EventCatalog>(
@@ -12,7 +13,7 @@ export function createBrowserClient<C extends CatalogShape<C> = EventCatalog>(
 ): BrowserClient<C> {
   if (typeof window === "undefined" || typeof document === "undefined")
     invalid(
-      "createBrowserClient requires a browser. Use createServerClient on the server."
+      "createBrowserClient requires a browser."
     );
   const queue = new DeliveryQueue(options, true);
   const persistence = options.persistence ?? "localStorage";
@@ -36,7 +37,8 @@ export function createBrowserClient<C extends CatalogShape<C> = EventCatalog>(
     }
   }
   let person = readStored() ?? newId();
-  function identify(id: string) {
+  function identify(id: string, traits?: Properties) {
+    checkTraits(traits);
     person = stringField(id, "distinctId", 256);
     try {
       storage?.setItem(key, person);

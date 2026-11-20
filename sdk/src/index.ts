@@ -1,4 +1,4 @@
-import { newId, stringField } from "./event.js";
+import { checkTraits, newId, stringField } from "./event.js";
 import { DeliveryQueue } from "./queue.js";
 import type {
   CatalogShape,
@@ -33,7 +33,10 @@ export function createServerClient<C extends CatalogShape<C> = EventCatalog>(
   const queue = new DeliveryQueue(options);
   let person = newId();
   return {
-    identify(id) { person = stringField(id, "distinctId", 256); },
+    identify(id, traits) {
+      checkTraits(traits);
+      person = stringField(id, "distinctId", 256);
+    },
     reset() { person = newId(); },
     capture(name, ...[properties, options]) {
       return queue.capture(name, options?.distinctId ?? person, properties, options);

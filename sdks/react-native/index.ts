@@ -17,6 +17,7 @@ import {
 import { AppState } from "react-native";
 import {
   BirdwatchError,
+  checkTraits,
   encodeEvent,
   invalid,
   stringField,
@@ -355,7 +356,8 @@ export async function createReactNativeClient<
     void receipt.catch(() => {});
     return receipt;
   }
-  async function identify(value: string) {
+  async function identify(value: string, traits?: Properties) {
+    checkTraits(traits);
     try {
       if (closed)
         throw new BirdwatchError("closed", "The client has been shut down.");

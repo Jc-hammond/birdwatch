@@ -203,7 +203,8 @@ public actor BirdwatchClient {
     await flush()
   }
 
-  public func identify(_ person: String) throws {
+  public func identify(_ person: String, traits: [String: JSONValue] = [:]) throws {
+    guard traits.isEmpty else { throw BirdwatchError.invalidInput("Identity traits are unsupported.") }
     distinctId = try checked(person, 256, "distinctId")
     if let key = persistenceKey { UserDefaults.standard.set(distinctId, forKey: key) }
   }

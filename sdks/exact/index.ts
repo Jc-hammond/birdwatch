@@ -1,4 +1,4 @@
-import { encodeEvent, invalid, newId, snapshotProperties, type EncodedEvent } from "../../sdk/src/event.js";
+import { checkTraits, encodeEvent, invalid, newId, snapshotProperties, type EncodedEvent } from "../../sdk/src/event.js";
 import { captureEndpoint, configure, payload, send } from "../../sdk/src/transport.js";
 import type { ClientOptions, EventCatalog, Properties, ServerEvent } from "../../sdk/src/types.js";
 import { utf8Length } from "../../sdk/src/utf8.js";
@@ -51,7 +51,10 @@ export function createExactClient(options: ExactOptions) {
         id: options.id ?? newId(), timestamp: options.timestamp ?? new Date(ctx.at).toISOString() };
       return admit(() => box.enqueue(event, ctx.storage));
     },
-    async identify(ctx: ExactContext, id: string) { await admit(() => box.identify(ctx.storage, id)); },
+    async identify(ctx: ExactContext, id: string, traits?: Properties) {
+      checkTraits(traits);
+      await admit(() => box.identify(ctx.storage, id));
+    },
     async reset(ctx: ExactContext) { await admit(() => box.identify(ctx.storage, newId())); },
     async flush(ctx: ExactDeliveryContext): Promise<ExactFlushResult> { open(); return flush(ctx); },
     close(ctx: ExactDeliveryContext) { return closing ??= flush(ctx).then(() => {}); },

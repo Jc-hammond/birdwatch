@@ -185,8 +185,15 @@ public final class Birdwatch {
 
   @NonNull
   public CompletableFuture<Void> identify(@NonNull String person) {
+    return identify(person, null);
+  }
+
+  @NonNull
+  public CompletableFuture<Void> identify(@NonNull String person, @Nullable Map<String, ?> traits) {
+    boolean unsupported = traits != null && !traits.isEmpty();
     return local(
         () -> {
+          if (unsupported) throw new IllegalArgumentException("Identity traits are unsupported.");
           outbox.identify(Event.field(person, "distinctId", 256));
           return null;
         });
