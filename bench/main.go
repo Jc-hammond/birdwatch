@@ -95,7 +95,7 @@ func benchmark(ctx context.Context, count int) (r result, err error) {
 			err = request(ctx, "GET", s.url+path+report.query, nil, 200, response)
 			elapsed := time.Since(start)
 			if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
-				// Python can continue a SQLite query after the client times out.
+				// Allow a timed-out request to finish before the next measurement.
 				// Reopen the same database before measuring another query.
 				if err = closeServer(); err != nil {
 					return r, err

@@ -1,0 +1,39 @@
+name: Compose install
+on:
+  pull_request:
+    paths: ['Dockerfile', '.dockerignore', 'compose.yaml', '.github/workflows/compose.yml']
+permissions:
+  contents: read
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Start from source and capture across a container replacement
+        shell: bash
+        run: |
+          set -euo pipefail
+          export BIRDWATCH_PASSWORD="$(openssl rand -hex 24)"
+          echo "::add-mask::$BIRDWATCH_PASSWORD"
+          cleanup() {
+            result=$?
+            if (( result != 0 )); then docker compose logs --no-color birdwatch; fi
+            docker compose down --volumes
+            exit "$result"
+          }
+          trap cleanup EXIT
+          docker compose up --build -d
+          base=http://127.0.0.1:8123
+          ready() { curl -fsS --retry 45 --retry-all-errors --retry-delay 1 "$base/healthz" >/dev/null; }
+          ready
+          curl -fsS -u "admin:$BIRDWATCH_PASSWORD" "$base/" | grep -qi '<html'
+          owner() { curl -fsS -u "admin:$BIRDWATCH_PASSWORD" "$@"; }
+          project=$(owner --json '{"name":"Compose test"}' "$base/api/projects" | jq -er .id)
+          key=$(owner "$base/api/projects/$project/setup" | jq -er .write_key)
+          echo "::add-mask::$key"
+          jq -n --arg key "$key" '{api_key:$key,event:"installed",distinct_id:"compose-fixture"}' |
+            curl -fsS --json @- "$base/api/capture" | jq -e '.accepted==1'
+          docker compose up -d --force-recreate
+          ready
+          owner "$base/api/projects/$project/events" | jq -e '.rows | map(.event)==["installed"]'
+          test "$(docker inspect --format '{{.Config.User}}' "$(docker compose ps -q birdwatch)")" = '10001:10001'

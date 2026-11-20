@@ -24,58 +24,18 @@ type server struct {
 	stop func()
 }
 
-// The Python reference keeps running every case it supports.
-var pythonGaps = map[string]string{
-	"TestSearchAndPagination":                                 "reference uses offsets without a stable snapshot",
-	"TestHostOriginAndPassword/error_codes_and_public_health": "access errors lack codes and health is not public",
-	"TestDashboardAssets":                                     "dashboard lacks ETags and build-time gzip",
-	"TestConcurrentCapture":                                   "concurrent writes lose events",
-	"TestCaptureErrors/invalid_event":                         "capture errors lack a code",
-	"TestCaptureErrors/unknown_key":                           "capture errors lack a code",
-	"TestCaptureErrors/too_large":                             "oversized batches return 400",
-	"TestBatchResults/partial":                                "a mixed batch always rolls back",
-	"TestBatchResults/atomic":                                 "rollback lacks per-event rejection details",
-	"TestCaptureClock/clamp_future":                           "future timestamps are rejected",
-	"TestCaptureClock/sent_at":                                "sent_at is ignored",
-	"TestTextPlainCapture":                                    "capture requires application/json",
-	"TestCapturePreflight":                                    "preflight lacks the 24-hour max age",
-	"TestRoutingErrors/unsupported_method":                    "unsupported method returns HTML",
-	"TestRoutingErrors/unknown_route":                         "unknown route error lacks a code",
-}
-
-// Remove each entry as its endpoints land. An unlisted case always runs.
-var goGaps = map[string]string{}
-
 func start(t *testing.T, db string, demo bool, password string) server {
 	t.Helper()
-	if reason, known := pythonGaps[t.Name()]; known && os.Getenv("BIRDWATCH_REFERENCE") == "python" {
-		t.Skip("Python reference:", reason)
+	binary := os.Getenv("BIRDWATCH_SERVER_CMD")
+	if binary == "" {
+		binary = "build/birdwatch"
 	}
-	if os.Getenv("BIRDWATCH_REFERENCE") == "go" {
-		group, _, _ := strings.Cut(t.Name(), "/")
-		if reason, known := goGaps[group]; known {
-			t.Skip("Go port:", reason)
-		}
+	if !filepath.IsAbs(binary) {
+		binary = filepath.Join("..", binary)
 	}
-	spec := os.Getenv("BIRDWATCH_SERVER_CMD")
-	command := strings.Fields(spec)
-	runDir := ".."
-	// A single executable must run without the source checkout. Keep interpreter
-	// commands such as "python3 server.py" relative to the module root.
-	executable := spec
-	if !filepath.IsAbs(executable) {
-		executable = filepath.Join(runDir, executable)
-	}
-	if info, err := os.Stat(executable); err == nil && info.Mode().IsRegular() {
-		absolute, err := filepath.Abs(executable)
-		if err != nil {
-			t.Fatal(err)
-		}
-		command = []string{absolute}
-		runDir = t.TempDir()
-	}
-	if len(command) == 0 {
-		t.Fatal("set BIRDWATCH_SERVER_CMD to the server command, e.g. python3 server.py")
+	binary, err := filepath.Abs(binary)
+	if err != nil {
+		t.Fatal(err)
 	}
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
@@ -85,12 +45,12 @@ func start(t *testing.T, db string, demo bool, password string) server {
 	if err := listener.Close(); err != nil {
 		t.Fatal(err)
 	}
-	args := append(command[1:], "--host", "127.0.0.1", "--port", strconv.Itoa(addr.Port), "--db", db)
+	args := []string{"--host", "127.0.0.1", "--port", strconv.Itoa(addr.Port), "--db", db}
 	if !demo {
 		args = append(args, "--no-demo")
 	}
-	cmd := exec.Command(command[0], args...)
-	cmd.Dir = runDir
+	cmd := exec.Command(binary, args...)
+	cmd.Dir = t.TempDir()
 	cmd.Env = append(cmd.Environ(), "BIRDWATCH_PASSWORD="+password)
 	if password != "" {
 		var logs bytes.Buffer

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -322,7 +321,7 @@ func TestDemoProjectIsSeparateAndFrozen(t *testing.T) {
 	if !report.AsOf.Equal(first.AsOf) || report.Current[0] <= 0 {
 		t.Error("demo overview must have events and use the frozen sample time")
 	}
-	if os.Getenv("BIRDWATCH_REFERENCE") != "python" {
+	{
 		fresh := start(t, filepath.Join(t.TempDir(), "fresh.db"), true, "")
 		const report = "overview?days=30"
 		if !reflect.DeepEqual(decode[object](t, fresh.report(t, p, report)), decode[object](t, s.report(t, p, report))) {

@@ -1,11 +1,12 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Run Birdwatch locally · Birdwatch</title><meta name="description" content="Set up self-hosted Birdwatch analytics, capture your first event, and explore your own data."><link rel="icon" href="/assets/mark.svg"><link rel="stylesheet" href="/style.css"></head><body><a class="skip" href="#main">Skip to content</a><header class="mast"><div class="wrap mast-inner"><a class="wordmark" href="/" aria-label="Birdwatch home"><img src="/assets/mark.svg" height="34" width="34" alt="">Birdwatch</a><nav aria-label="Main"><a href="/#demo">Demo</a><a href="/#developers">Developers</a><a href="/docs.html">Docs</a><a href="https://github.com/Jc-hammond/birdwatch">GitHub</a></nav><a class="button ink nav-cta" href="/downloads/birdwatch-source.zip" download>Download</a></div></header><main id="main" class="wrap doc-layout"><nav class="doc-menu" aria-label="Documentation"><small>Documentation</small><a aria-current="page" href="/docs.html">Local setup</a><a href="/sdk.html">JavaScript SDK</a><a href="/native.html">Mobile &amp; Exact</a><div class="toc"><a href="#run-locally">Run locally</a><a href="#capture-events">Capture events</a><a href="#read-the-reports">Read the reports</a><a href="#docker-compose">Docker Compose</a><a href="#hosting-and-storage">Hosting and storage</a><a href="#develop">Develop</a></div></nav><article class="prose"><h1>Run Birdwatch locally</h1><a class="button orange" href="/downloads/birdwatch-source.zip" download>Download Birdwatch</a>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Run Birdwatch locally · Birdwatch</title><meta name="description" content="Set up self-hosted Birdwatch analytics, capture your first event, and explore your own data."><link rel="icon" href="/assets/mark.svg"><link rel="stylesheet" href="/style.css"></head><body><a class="skip" href="#main">Skip to content</a><header class="mast"><div class="wrap mast-inner"><a class="wordmark" href="/" aria-label="Birdwatch home"><img src="/assets/mark.svg" height="34" width="34" alt="">Birdwatch</a><nav aria-label="Main"><a href="/#demo">Demo</a><a href="/#developers">Developers</a><a href="/docs.html">Docs</a><a href="https://github.com/Jc-hammond/birdwatch">GitHub</a></nav><a class="button ink nav-cta" href="https://github.com/Jc-hammond/birdwatch/archive/refs/heads/main.zip">Download</a></div></header><main id="main" class="wrap doc-layout"><nav class="doc-menu" aria-label="Documentation"><small>Documentation</small><a aria-current="page" href="/docs.html">Local setup</a><a href="/sdk.html">JavaScript SDK</a><a href="/native.html">Mobile &amp; Exact</a><div class="toc"><a href="#run-locally">Run locally</a><a href="#capture-events">Capture events</a><a href="#read-the-reports">Read the reports</a><a href="#docker-compose">Docker Compose</a><a href="#hosting-and-storage">Hosting and storage</a><a href="#develop">Develop</a></div></nav><article class="prose"><h1>Run Birdwatch locally</h1><a class="button orange" href="https://github.com/Jc-hammond/birdwatch/archive/refs/heads/main.zip">Download Birdwatch</a>
 <p>Birdwatch is open-source product analytics you run on your own server. Track actions like sign-ups and checkouts, inspect the events behind a user’s activity, and see how many people go from one action to the next.</p>
-<p>One Python process serves the dashboard, browser script, and HTTP API. Events live in a SQLite database on your machine or server.</p>
+<p>One Go binary serves the dashboard, browser script, and HTTP API. Events live in a SQLite database on your machine or server.</p>
 <h2 id="run-locally">Run locally</h2>
-<p>Download and unzip Birdwatch, or clone the repository. From the project directory, run this command with Python 3.9+ and SQLite 3.25+.</p>
-<pre><code class="language-sh">python3 server.py
+<p>Clone or unzip the repository and install the <a href="https://github.com/Jc-hammond/birdwatch#develop">build tools listed in the README</a>. From the project directory, run these commands.</p>
+<pre><code class="language-sh">make build
+./build/birdwatch
 </code></pre>
-<p>Open <a href="http://127.0.0.1:8123">Birdwatch on localhost</a>. The dashboard comes prebuilt.</p>
+<p>Open <a href="http://127.0.0.1:8123">Birdwatch on localhost</a>.</p>
 <ol>
 <li>Explore the read-only demo project, then select <strong>Connect source</strong> → <strong>Create project</strong>.</li>
 <li>On <strong>Setup</strong>, select <strong>Send test event</strong> to check that the server can receive events.</li>
@@ -59,8 +60,8 @@ await birdwatch.capture(&quot;sign_up&quot;, { plan: &quot;free&quot; });
     &quot;uuid&quot;: &quot;signup-user42-1&quot;
   }&#x27;
 </code></pre>
-<p>A new event returns <code>{&quot;accepted&quot;:1,&quot;duplicates&quot;:0}</code>. Reuse the same optional <code>uuid</code> when retrying that event so Birdwatch counts it once. The optional <code>timestamp</code> accepts ISO 8601 with a time zone and defaults to when the server receives the event.</p>
-<p>To send up to 100 events in one request, use a top-level <code>api_key</code> and a <code>batch</code> array of event objects. If any item is invalid, Birdwatch rejects the whole batch. The request limit is 1 MiB and the JSON-encoded properties limit is 32 KiB per event.</p>
+<p>A new event returns <code>{&quot;accepted&quot;:1,&quot;duplicates&quot;:0,&quot;rejected&quot;:[]}</code>. Reuse the same optional <code>uuid</code> when retrying that event so Birdwatch counts it once. The optional <code>timestamp</code> accepts ISO 8601 with a time zone and defaults to when the server receives the event.</p>
+<p>To send up to 100 events in one request, use a top-level <code>api_key</code> and a <code>batch</code> array of event objects. Birdwatch reports rejected items by index. Send <code>&quot;atomic&quot;: true</code> to roll back the whole batch if an item is invalid. The request limit is 1 MiB and the JSON-encoded properties limit is 32 KiB per event.</p>
 <h2 id="read-the-reports">Read the reports</h2>
 <ul>
 <li><strong>Overview</strong> shows event counts, active users, page views, and events per user. Select a top event to see its matching rows. Hover over a day’s bars or focus them with the keyboard to see its counts.</li>
@@ -75,7 +76,7 @@ await birdwatch.capture(&quot;sign_up&quot;, { plan: &quot;free&quot; });
 docker compose up --build -d
 </code></pre>
 <p>Open <a href="http://127.0.0.1:8123">Birdwatch on localhost</a> and sign in as <code>admin</code> with the password you set. Run <code>printenv BIRDWATCH_PASSWORD</code> in the same shell to retrieve it. Keep the variable set for future Compose commands or save it in a local <code>.env</code> file.</p>
-<p>Compose binds the published port to loopback and stores the database in the <code>events</code> volume. Use <code>docker compose down</code> to stop the service and keep its data. If you also run the Python server directly, give the two instances different ports. Each uses its own database by default.</p>
+<p>Compose binds the published port to loopback and stores the database in the <code>birdwatch-data</code> volume. Use <code>docker compose down</code> to stop the service and keep its data. If you also run the binary directly, give the two instances different ports. Each uses its own database by default.</p>
 <h2 id="hosting-and-storage">Hosting and storage</h2>
 <div class="table-scroller"><table>
 <thead>
@@ -98,7 +99,7 @@ docker compose up --build -d
 <tr>
 <td><code>BIRDWATCH_DB</code> or <code>--db</code></td>
 <td><code>data/birdwatch.sqlite3</code></td>
-<td>Database path, relative to <code>server.py</code> by default</td>
+<td>Database path, relative to the working directory</td>
 </tr>
 <tr>
 <td><code>BIRDWATCH_PASSWORD</code></td>
@@ -108,17 +109,15 @@ docker compose up --build -d
 </tbody></table></div>
 <p>Set a dashboard password before exposing Birdwatch to a network. Serve it over HTTPS through a reverse proxy and preserve the original <code>Host</code> header. Use the public HTTPS URL in your app’s integration. If your site uses Content Security Policy, allow the Birdwatch origin in <code>script-src</code> and <code>connect-src</code>.</p>
 <p>A project write key lets clients send events. The dashboard administrator can read every project. For a public capture endpoint, apply request and traffic limits at your reverse proxy. Birdwatch is designed for one operator on one host.</p>
-<p>Use SQLite’s online backup command to copy a running database. For Compose, make an online backup inside the container or stop the service before taking a volume snapshot.</p>
-<pre><code class="language-sh">sqlite3 data/birdwatch.sqlite3 &quot;.backup &#x27;birdwatch-backup.sqlite3&#x27;&quot;
+<p>Use the server’s backup command to take a consistent snapshot of a running database. With Compose, copy the snapshot out of the data volume.</p>
+<pre><code class="language-sh">docker compose exec birdwatch /birdwatch backup /data/snapshot.sqlite3
+docker compose cp birdwatch:/data/snapshot.sqlite3 ./snapshot.sqlite3
 </code></pre>
 <h2 id="develop">Develop</h2>
-<p>The Python server uses the standard library. The React dashboard lives in <code>ui/src/</code>, the browser and Node.js SDK lives in <code>sdk/</code>, and the server serves the built dashboard from <code>static/</code>.</p>
+<p>The Go binary embeds the dashboard and SDK downloads. Dashboard source lives in <code>ui/src/</code> and the JavaScript SDK lives in <code>sdk/</code>.</p>
 <p>To rebuild the dashboard and run the server tests, start in the project directory.</p>
-<pre><code class="language-sh">cd ui
-npm ci
-npm run build
-cd ..
-python3 -m unittest discover -s tests -v
+<pre><code class="language-sh">make build
+make test
 </code></pre>
 <p>Birdwatch is available under the <a href="/downloads/LICENSE.txt">MIT license</a>. See <a href="/downloads/THIRD_PARTY_NOTICES.txt">third-party notices</a> for bundled dependencies.</p>
 </article></main><footer><div class="wrap footer"><a class="wordmark" href="/"><img src="/assets/mark.svg" height="27" width="27" alt="">Birdwatch</a><div><a href="/docs.html">Docs</a><a href="/sdk.html">JavaScript SDK</a><a href="/native.html">Mobile &amp; Exact</a><a href="/downloads/LICENSE.txt">MIT license</a></div></div></footer></body></html>
