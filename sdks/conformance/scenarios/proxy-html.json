@@ -1,0 +1,28 @@
+{
+  "rule": "An unrecognised HTML response is retryable, including HTTP 400.",
+  "collector": [
+    {
+      "status": 400,
+      "html": true
+    },
+    "ack"
+  ],
+  "steps": [
+    {
+      "capture": ["a"]
+    },
+    "flush",
+    {
+      "advanceMs": 1000
+    }
+  ],
+  "expect": {
+    "requests": [
+      ["a"],
+      ["a"]
+    ],
+    "stored": ["a"],
+    "outbox": [],
+    "errors": 0
+  }
+}

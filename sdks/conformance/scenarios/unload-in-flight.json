@@ -1,0 +1,28 @@
+{
+  "rule": "On page hide resend all unacknowledged events with keepalive or beacon.",
+  "config": {
+    "browser": true
+  },
+  "collector": ["holdAck", "ack"],
+  "steps": [
+    {
+      "capture": ["a"]
+    },
+    "flush",
+    {
+      "capture": ["b"]
+    },
+    "hide",
+    "release"
+  ],
+  "expect": {
+    "requests": [
+      ["a"],
+      ["a", "b"]
+    ],
+    "stored": ["a", "b"],
+    "outbox": [],
+    "errors": 0,
+    "unloadDelivery": true
+  }
+}

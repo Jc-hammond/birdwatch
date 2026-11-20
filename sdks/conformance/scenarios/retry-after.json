@@ -1,0 +1,30 @@
+{
+  "rule": "Retry-After overrides backoff and is capped at five minutes.",
+  "collector": [
+    {
+      "status": 429,
+      "code": "rate_limited",
+      "retryAfter": 600
+    },
+    "ack"
+  ],
+  "steps": [
+    {
+      "capture": ["a"]
+    },
+    "flush",
+    {
+      "advanceMs": 300000
+    }
+  ],
+  "expect": {
+    "requests": [
+      ["a"],
+      ["a"]
+    ],
+    "stored": ["a"],
+    "outbox": [],
+    "errors": 0,
+    "retryDelaysMs": [300000]
+  }
+}
