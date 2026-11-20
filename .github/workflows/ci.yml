@@ -29,6 +29,10 @@ jobs:
           java-version: '17'
       - name: Build from source, lint and test the server
         run: make build lint test-server check-clean
+      - name: Benchmark 100,000 events on the Python reference
+        env:
+          BIRDWATCH_SERVER_CMD: python3 server.py
+        run: go run ./bench --events 100000
 
   javascript:
     runs-on: ubuntu-latest
