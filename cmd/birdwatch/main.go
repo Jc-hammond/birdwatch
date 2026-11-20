@@ -42,6 +42,9 @@ func run() error {
 		return err
 	}
 	defer db.Close()
+	if err := db.Seed(ctx, !cfg.NoDemo); err != nil {
+		return err
+	}
 	if cfg.BackupDir != "" {
 		done := make(chan struct{})
 		go func() {

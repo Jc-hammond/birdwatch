@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -321,4 +322,15 @@ func TestDemoProjectIsSeparateAndFrozen(t *testing.T) {
 	if !report.AsOf.Equal(first.AsOf) || report.Current[0] <= 0 {
 		t.Error("demo overview must have events and use the frozen sample time")
 	}
+	if os.Getenv("BIRDWATCH_REFERENCE") == "go" {
+		fresh := start(t, filepath.Join(t.TempDir(), "fresh.db"), true, "")
+		check(t, "identical sample reports", decode[object](t, fresh.report(t, p, "overview?days=30")), decode[object](t, s.report(t, p, "overview?days=30")))
+	}
+	empty := startEmpty(t)
+	projects := decode[struct{ Projects []sample }](t, empty.expect(t, 200, "GET", "/api/projects", nil, nil)).Projects
+	if len(projects) != 1 || !projects[0].AsOf.IsZero() {
+		t.Fatal("expected one empty, writable project with --no-demo")
+	}
+	check(t, "empty project events", empty.overview(t, project{id: projects[0].ID}, 30).Current[0], float64(0))
+
 }
