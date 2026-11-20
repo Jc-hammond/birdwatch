@@ -11,6 +11,8 @@ POST /api/capture
 Content-Type: application/json
 ```
 
+The capture endpoint accepts cross-origin requests using the project write key. Clients can send events without the dashboard’s HTTP Basic credentials.
+
 The body is a JSON object: a batch, or a single event.
 
 **Batch.** This is what SDKs send.
