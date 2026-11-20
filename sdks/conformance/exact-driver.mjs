@@ -126,8 +126,8 @@ export class ExactDriver {
     task = this.client
       .flush(this.storage, this.now, background, token)
       .then((outcome) => {
-        if (work === this.work && outcome.retryAfterMs !== undefined) {
-          this.due = this.now + outcome.retryAfterMs;
+        if (work === this.work && outcome.retryToken) {
+          this.due = Math.max(this.now + outcome.retryAfterMs, Math.min(this.now + 300000, outcome.retryAtMs ?? 0));
           this.retryToken = outcome.retryToken;
         }
       })

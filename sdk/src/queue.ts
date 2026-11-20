@@ -57,14 +57,11 @@ export class DeliveryQueue {
         throw new BirdwatchError("closed", "The client has been shut down.");
       return this.admit(event);
     } catch (error) {
-      return this.failed(error as BirdwatchError);
+      this.config.report(error as BirdwatchError);
+      const rejected = Promise.reject<Receipt>(error);
+      void rejected.catch(() => {});
+      return rejected;
     }
-  }
-  private failed(error: BirdwatchError) {
-    this.config.report(error);
-    const rejected = Promise.reject<Receipt>(error);
-    void rejected.catch(() => {});
-    return rejected;
   }
   private admit(event: EncodedEvent, slot?: string) {
     if (this.pending.size >= this.config.maxQueue) {

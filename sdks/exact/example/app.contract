@@ -13,6 +13,7 @@ shape Receipt
   duplicates: number
   retryToken: number
   retryAfterMs: number
+  retryAtMs: number
 
 component App
   resource page = exactPage() as shape Page
@@ -20,30 +21,29 @@ component App
   mutation saved as shape Saved then sync
   mutation hiddenDelivery as shape Receipt then arm
   mutation delivery as shape Receipt then arm
-  state retried = 0
   state armed = 0
-  state deadline = 0
+  state deadline = -1
   derive foregroundToken = match delivery { case some(r) => r.retryToken, case none => 0 }
   derive hiddenToken = match hiddenDelivery { case some(r) => r.retryToken, case none => 0 }
   derive latest = max(foregroundToken, hiddenToken)
-  derive delay = foregroundToken > hiddenToken ? (match delivery { case some(r) => r.retryAfterMs, case none => 0 }) : (match hiddenDelivery { case some(r) => r.retryAfterMs, case none => 0 })
+  derive receipt = foregroundToken > hiddenToken ? delivery : hiddenDelivery
   action arm
     if latest > armed
       armed = latest
-      deadline = performanceNow() + delay
+      deadline = match receipt { case some(r) => max(performanceNow() + r.retryAfterMs, min(performanceNow() + 300000, r.retryAtMs - time.epochAtZero)), case none => -1 }
   action retry
     if performanceNow() >= deadline and not pending(delivery)
       send delivery = replay(time.epochAtZero + performanceNow(), false, armed)
-      retried = armed
-  task backoff when armed > retried
+      deadline = -1
+  task backoff when deadline >= 0
     every(50, retry)
   action complete
     send saved = recordCompletion("demo-user", "demo-user:onboarding-v1", time.epochAtZero + performanceNow())
   action sync
-    if latest <= retried and not pending(delivery)
+    if latest <= armed and deadline < 0 and not pending(delivery)
       send delivery = replay(time.epochAtZero + performanceNow(), false, 0)
   action hide
-    if latest <= retried
+    if latest <= armed and deadline < 0
       send hiddenDelivery = replay(time.epochAtZero + performanceNow(), true, 0)
   task hid when page.visibilityState == "hidden"
     after(1, hide)

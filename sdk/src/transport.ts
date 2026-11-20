@@ -19,20 +19,18 @@ const hostError = "Use an HTTP(S) host without credentials, query or fragment.";
 export function captureEndpoint(host: string) {
   // Exact and React Native also run on hosts with partial WHATWG URL support.
   const match = typeof host === "string" &&
-    /^https?:\/\/(?:\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::([0-9]{1,5}))?(?:\/[^?#\\\s]*)?$/i.exec(host);
+    /^https?:\/\/(?:\[[0-9a-f:.]+\]|[a-z0-9_.-]+)(?::([0-9]{1,5}))?(?:\/[^?#\\\s]*)?$/i.exec(host);
   if (!match || Number(match[1] ?? 0) > 65535)
     invalid(hostError);
   return host.replace(/\/+$/, "") + "/api/capture";
 }
 
 function browserEndpoint(host: string) {
-  let url: URL;
   try {
-    url = new URL(host);
+    return captureEndpoint(new URL(host).href);
   } catch {
     return invalid(hostError);
   }
-  return captureEndpoint(url.href);
 }
 
 export function configure(
@@ -74,7 +72,8 @@ export class DeliveryFailure extends BirdwatchError {
   constructor(
     readonly outcome: "retry" | "pause" | "drop",
     status?: number,
-    readonly retryAfter?: number
+    readonly retryAfter?: number,
+    readonly retryAt?: number
   ) {
     super("http", "Collector did not acknowledge this batch.", status);
   }
@@ -82,7 +81,10 @@ export class DeliveryFailure extends BirdwatchError {
 
 /** A rejected attempt uses Retry-After when available, otherwise full jitter. */
 export function retryDelay(error: unknown, failures: number, random = Math.random) {
-  if (error instanceof DeliveryFailure && error.retryAfter !== undefined) return error.retryAfter;
+  if (error instanceof DeliveryFailure) {
+    if (error.retryAfter !== undefined) return error.retryAfter;
+    if (error.retryAt !== undefined) return Math.min(300000, Math.max(0, error.retryAt - Date.now()));
+  }
   return random() * (1000 * Math.min(60, 2 ** failures));
 }
 
@@ -103,8 +105,7 @@ export async function send(
   body: string,
   count: number,
   browser: boolean,
-  keepalive: boolean,
-  attemptTime?: number
+  keepalive: boolean
 ) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.timeout);
@@ -124,12 +125,8 @@ export async function send(
     if (response.status !== 200) {
       const status = response.status;
       const header = response.headers.get("Retry-After");
-      const wait =
-        header === null
-          ? NaN
-          : /^\d+(\.\d+)?$/.test(header)
-            ? Number(header) * 1000
-            : Date.parse(header) - (attemptTime ?? Date.now());
+      const seconds = header !== null && /^\d+(\.\d+)?$/.test(header);
+      const date = header && !seconds ? Date.parse(header) : NaN;
       const outcome =
         status >= 500 || status === 429 || status === 408
           ? "retry"
@@ -141,7 +138,8 @@ export async function send(
       throw new DeliveryFailure(
         outcome,
         status,
-        Number.isNaN(wait) ? undefined : Math.min(300000, Math.max(0, wait))
+        seconds ? Math.min(300000, Number(header) * 1000) : undefined,
+        Number.isFinite(date) ? date : undefined
       );
     }
     const rejected = new Map<number, BirdwatchError>();

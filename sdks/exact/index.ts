@@ -1,11 +1,10 @@
 import { encodeEvent, invalid, type EncodedEvent } from "../../sdk/src/event.js";
 import { captureEndpoint, configure, payload, send } from "../../sdk/src/transport.js";
-import { BirdwatchError, type ClientOptions, type EventCatalog, type ServerEvent } from "../../sdk/src/types.js";
+import type { ClientOptions, EventCatalog, ServerEvent } from "../../sdk/src/types.js";
 import { utf8Length } from "../../sdk/src/utf8.js";
 import { exactOutbox } from "./outbox.js";
-export { BirdwatchError };
 export { exactOutboxPath, type ExactStorage, type QueuedExactEvent } from "./outbox.js";
-export type { BatchCounts, Properties } from "../../sdk/src/types.js";
+export { BirdwatchError, type BatchCounts, type Properties } from "../../sdk/src/types.js";
 
 export type ExactEvent = Omit<ServerEvent<EventCatalog>, "timestamp"> & { timestamp?: string };
 export interface ExactOptions extends Pick<ClientOptions, "host" | "writeKey" | "maxQueueSize" | "timeoutMs" | "onError"> {
@@ -28,7 +27,7 @@ export function createExactClient(options: ExactOptions) {
   }, captureEndpoint);
   const overhead = utf8Length(payload(config.key, [], "2000-01-01T00:00:00.000Z"));
   function deliver(rows: EncodedEvent[], at: number, background: boolean) {
-    return send(config, payload(config.key, rows, new Date(at).toISOString()), rows.length, false, background, at);
+    return send(config, payload(config.key, rows, new Date(at).toISOString()), rows.length, false, background);
   }
   async function captureBatch(events: readonly ExactEvent[], at: number) {
     if (!Array.isArray(events) || !events.length || events.length > 100) invalid("Send 1–100 events per batch.");
