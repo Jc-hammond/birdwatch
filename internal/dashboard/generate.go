@@ -11,16 +11,24 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 )
 
 func pack(w io.Writer) error {
+	downloads, err := filepath.Glob("ui/public/assets/*")
+	if err != nil {
+		return err
+	}
 	entries, err := os.ReadDir("static/assets")
 	if err != nil {
 		return err
 	}
+	hashed := regexp.MustCompile(`^assets/[^/]+[-.][0-9a-fA-F]{8,}\.[a-zA-Z0-9]+$`)
 	names := []string{"index.html", "birdwatch.js", "favicon.svg"}
 	for _, e := range entries {
-		if e.Type().IsRegular() {
+		name := e.Name()
+		if e.Type().IsRegular() && (hashed.MatchString("assets/"+name) || name == "theme.js" || slices.Contains(downloads, filepath.Join("ui", "public", "assets", name))) {
 			names = append(names, "assets/"+e.Name())
 		}
 	}
@@ -38,7 +46,11 @@ func pack(w io.Writer) error {
 		if err = z.Close(); err != nil {
 			return err
 		}
-		if err = tarball.WriteHeader(&tar.Header{Name: name, Mode: 0644, Size: int64(encoded.Len())}); err != nil {
+		header := tar.Header{Name: name, Mode: 0644, Size: int64(encoded.Len())}
+		if hashed.MatchString(name) {
+			header.PAXRecords = map[string]string{"BIRDWATCH.cache": "immutable"}
+		}
+		if err = tarball.WriteHeader(&header); err != nil {
 			return err
 		}
 		if _, err = encoded.WriteTo(tarball); err != nil {

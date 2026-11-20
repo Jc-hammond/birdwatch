@@ -12,7 +12,6 @@ import (
 	"mime"
 	"net/http"
 	"path"
-	"regexp"
 	"strconv"
 	"strings"
 )
@@ -39,7 +38,6 @@ var files = loadAssets()
 
 func loadAssets() map[string]*Asset {
 	files := make(map[string]*Asset)
-	hashed := regexp.MustCompile(`^/assets/[^/]+[-.][0-9a-fA-F]{8,}\.[a-zA-Z0-9]+$`)
 	tr := tar.NewReader(bytes.NewReader(bundle))
 	for {
 		header, err := tr.Next()
@@ -71,7 +69,7 @@ func loadAssets() map[string]*Asset {
 			media = "application/octet-stream"
 		}
 		cache := "no-cache"
-		if hashed.MatchString(route) {
+		if header.PAXRecords["BIRDWATCH.cache"] == "immutable" {
 			cache = "public, max-age=31536000, immutable"
 		}
 		files[route] = &Asset{plain: represent(raw), gzip: represent(zipped), mediaType: media, cacheControl: cache, public: route == "/birdwatch.js"}

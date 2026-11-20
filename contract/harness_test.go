@@ -46,7 +46,23 @@ func start(t *testing.T, db string, demo bool, password string) server {
 	if reason, known := pythonGaps[t.Name()]; known && os.Getenv("BIRDWATCH_REFERENCE") == "python" {
 		t.Skip("Python reference:", reason)
 	}
-	command := strings.Fields(os.Getenv("BIRDWATCH_SERVER_CMD"))
+	spec := os.Getenv("BIRDWATCH_SERVER_CMD")
+	command := strings.Fields(spec)
+	runDir := ".."
+	// A single executable must run without the source checkout. Keep interpreter
+	// commands such as "python3 server.py" relative to the module root.
+	executable := spec
+	if !filepath.IsAbs(executable) {
+		executable = filepath.Join(runDir, executable)
+	}
+	if info, err := os.Stat(executable); err == nil && info.Mode().IsRegular() {
+		absolute, err := filepath.Abs(executable)
+		if err != nil {
+			t.Fatal(err)
+		}
+		command = []string{absolute}
+		runDir = t.TempDir()
+	}
 	if len(command) == 0 {
 		t.Fatal("set BIRDWATCH_SERVER_CMD to the server command, e.g. python3 server.py")
 	}
@@ -63,7 +79,7 @@ func start(t *testing.T, db string, demo bool, password string) server {
 		args = append(args, "--no-demo")
 	}
 	cmd := exec.Command(command[0], args...)
-	cmd.Dir = ".." // Server commands are relative to the module root.
+	cmd.Dir = runDir
 	cmd.Env = append(cmd.Environ(), "BIRDWATCH_PASSWORD="+password)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)

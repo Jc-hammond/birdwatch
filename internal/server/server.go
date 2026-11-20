@@ -45,12 +45,14 @@ func (f failure) Error() string { return f.Message }
 var internalError = failure{500, "internal", "Unexpected server error. Retry the request."}
 var tooLargeError = failure{413, "too_large", "Limit the request body to 1 MiB."}
 
-func handle(w http.ResponseWriter, r *http.Request, methods map[string]endpoint) (any, error) {
+var assetMethods = map[string]endpoint{http.MethodGet: nil, http.MethodHead: nil}
+
+func resolve(w http.ResponseWriter, r *http.Request, methods map[string]endpoint) (endpoint, error) {
 	if methods == nil {
 		return nil, failure{404, "not_found", "Unknown endpoint. Check the request path."}
 	}
-	fn := methods[r.Method]
-	if fn == nil {
+	fn, allowed := methods[r.Method]
+	if !allowed {
 		for method := range methods {
 			w.Header().Add("Allow", method)
 		}
@@ -76,7 +78,7 @@ func handle(w http.ResponseWriter, r *http.Request, methods map[string]endpoint)
 		}
 		r.Body = io.NopCloser(bytes.NewReader(body))
 	}
-	return fn(r)
+	return fn, nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -86,8 +88,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	asset := dashboard.Lookup(r.URL.Path)
 	if asset != nil {
 		pattern = "dashboard"
-	}
-	if methods != nil {
+		methods = assetMethods
+	} else if methods != nil {
 		// Only exact, registered paths reach the log.
 		pattern = r.URL.Path
 	}
@@ -108,16 +110,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		status = writeJSON(w, 503, failure{503, "unavailable", "Server is busy. Retry in one second."})
 		return
 	}
-	if asset != nil {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			w.Header().Set("Allow", "GET, HEAD")
-			status = writeJSON(w, 405, failure{405, "method_not_allowed", "Use GET or HEAD for dashboard files."})
+	var body any
+	fn, err := resolve(w, r, methods)
+	if err == nil {
+		if asset != nil {
+			status = asset.Serve(w, r)
 			return
 		}
-		status = asset.Serve(w, r)
-		return
+		body, err = fn(r)
 	}
-	body, err := handle(w, r, methods)
 	if err != nil {
 		var f failure
 		if !errors.As(err, &f) {
