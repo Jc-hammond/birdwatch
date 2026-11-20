@@ -8,6 +8,7 @@ import (
 	"github.com/ncruces/go-sqlite3"
 	"log"
 	"net/http"
+	"net/url"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -49,6 +50,8 @@ func New(logger *log.Logger, password string, db *storage.Store) *Server {
 		credential: dashboardCredential(password),
 	}
 	s.routes["/api/projects"] = map[string]endpoint{"GET": s.projects, "POST": s.createProject}
+	s.routes["/api/projects/{project}"] = map[string]endpoint{"PATCH": s.changeProject}
+	s.routes["/api/projects/{project}/people/{person}"] = map[string]endpoint{"DELETE": s.changeProject}
 	for _, kind := range []string{"overview", "events", "people", "names", "funnel", "setup"} {
 		s.routes["/api/projects/{project}/"+kind] = map[string]endpoint{"GET": s.readReport(kind)}
 	}
@@ -86,7 +89,7 @@ func resolve(w http.ResponseWriter, r *http.Request, methods map[string]endpoint
 	if r.ContentLength < 0 {
 		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 		// POST handlers finish reading before opening a transaction.
-		if r.Method != http.MethodPost {
+		if r.Method != http.MethodPost && r.Method != http.MethodPatch {
 			if _, err := readBody(r.Body); err != nil {
 				return nil, err
 			}
@@ -99,10 +102,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	pattern := "unmatched"
 	route := r.URL.Path
-	if tail, ok := strings.CutPrefix(route, "/api/projects/"); ok {
-		id, kind, _ := strings.Cut(tail, "/")
+	if tail, ok := strings.CutPrefix(r.URL.EscapedPath(), "/api/projects/"); ok {
+		id, kind, subpath := strings.Cut(tail, "/")
 		if _, err := strconv.ParseUint(id, 10, 60); err == nil && len(id) <= 18 {
-			route = "/api/projects/{project}/" + kind
+			route = "/api/projects/{project}"
+			if subpath {
+				route += "/" + kind
+				if segment, ok := strings.CutPrefix(kind, "people/"); ok && segment != "" && !strings.Contains(segment, "/") {
+					person, err := url.PathUnescape(segment)
+					if err == nil {
+						r.SetPathValue("person", person)
+						route = "/api/projects/{project}/people/{person}"
+					}
+				}
+			}
 			r.SetPathValue("project", id)
 		}
 	}

@@ -96,7 +96,9 @@ function Metrics({ report, days }) {
                 <Arrow size={13} />
                 {change === null ? "—" : (change > 0 ? "+" : "") + change + "%"}
               </b>
-              <span>vs. previous {days === 1 ? "day" : days + " days"}</span>
+              <span>vs. previous {days === 1 ? "day" : days + " days"}
+                {report.previous_full_day && " · includes all of " + report.previous_full_day + " UTC"}
+              </span>
             </div>
           </article>
         );

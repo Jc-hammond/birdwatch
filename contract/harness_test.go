@@ -26,21 +26,23 @@ type server struct {
 
 // The Python reference keeps running every case it supports.
 var pythonGaps = map[string]string{
-	"TestSearchAndPagination":                                 "reference uses offsets without a stable snapshot",
+	"TestProjectRetention":    "reference has no retention policy",
+	"TestErasePerson":         "reference has no person erasure",
+	"TestSearchAndPagination": "reference uses offsets without a stable snapshot",
 	"TestHostOriginAndPassword/error_codes_and_public_health": "access errors lack codes and health is not public",
-	"TestDashboardAssets":                                     "dashboard lacks ETags and build-time gzip",
-	"TestConcurrentCapture":                                   "concurrent writes lose events",
-	"TestCaptureErrors/invalid_event":                         "capture errors lack a code",
-	"TestCaptureErrors/unknown_key":                           "capture errors lack a code",
-	"TestCaptureErrors/too_large":                             "oversized batches return 400",
-	"TestBatchResults/partial":                                "a mixed batch always rolls back",
-	"TestBatchResults/atomic":                                 "rollback lacks per-event rejection details",
-	"TestCaptureClock/clamp_future":                           "future timestamps are rejected",
-	"TestCaptureClock/sent_at":                                "sent_at is ignored",
-	"TestTextPlainCapture":                                    "capture requires application/json",
-	"TestCapturePreflight":                                    "preflight lacks the 24-hour max age",
-	"TestRoutingErrors/unsupported_method":                    "unsupported method returns HTML",
-	"TestRoutingErrors/unknown_route":                         "unknown route error lacks a code",
+	"TestDashboardAssets":                  "dashboard lacks ETags and build-time gzip",
+	"TestConcurrentCapture":                "concurrent writes lose events",
+	"TestCaptureErrors/invalid_event":      "capture errors lack a code",
+	"TestCaptureErrors/unknown_key":        "capture errors lack a code",
+	"TestCaptureErrors/too_large":          "oversized batches return 400",
+	"TestBatchResults/partial":             "a mixed batch always rolls back",
+	"TestBatchResults/atomic":              "rollback lacks per-event rejection details",
+	"TestCaptureClock/clamp_future":        "future timestamps are rejected",
+	"TestCaptureClock/sent_at":             "sent_at is ignored",
+	"TestTextPlainCapture":                 "capture requires application/json",
+	"TestCapturePreflight":                 "preflight lacks the 24-hour max age",
+	"TestRoutingErrors/unsupported_method": "unsupported method returns HTML",
+	"TestRoutingErrors/unknown_route":      "unknown route error lacks a code",
 }
 
 // Remove each entry as its endpoints land. An unlisted case always runs.

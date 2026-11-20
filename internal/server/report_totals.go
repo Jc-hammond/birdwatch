@@ -44,11 +44,20 @@ func (q report) eventTotal(where string, args []any) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	counts, params, _, err := q.eventDays(q.start, end)
+	counts, params, partial, err := q.eventDays(q.start, end)
 	if err != nil {
 		return 0, err
 	}
-	n, err := q.count(counts+`SELECT coalesce(sum(count),0) FROM counts WHERE (?='' OR event=?)
+	// Daily totals survive retention. Subtract archived contributions only on
+	// days read from the rollup. A partial boundary already uses raw rows.
+	lastDaily := end
+	if partial {
+		lastDaily = end.AddDate(0, 0, -1)
+	}
+	params = append(params, q.id, q.start.Format(time.DateOnly), lastDaily.Format(time.DateOnly))
+	n, err := q.count(counts+`, raw_counts AS (SELECT event,count FROM counts UNION ALL
+ SELECT event,-n FROM expired_counts WHERE project_id=? AND day BETWEEN ? AND ?)
+ SELECT coalesce(sum(count),0) FROM raw_counts WHERE (?='' OR event=?)
  AND (?='' OR instr(lower(event),lower(?))>0)`, append(params, name, name, nameSearch, nameSearch)...)
 	if err != nil || matching == 0 || matching == persons {
 		return n, err

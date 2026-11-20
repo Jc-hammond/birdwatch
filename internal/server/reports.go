@@ -55,7 +55,7 @@ func records(db storage.Reader, query string, args ...any) ([]record, error) {
 func (s *Server) projects(r *http.Request) (any, error) {
 	var rows []record
 	err := s.db.Read(r.Context(), func(db storage.Reader) (err error) {
-		rows, err = records(db, "SELECT id,name,sample_as_of FROM projects ORDER BY id")
+		rows, err = records(db, "SELECT id,name,sample_as_of,retention_days FROM projects ORDER BY id")
 		return
 	})
 	return record{"projects": rows}, err
@@ -66,12 +66,13 @@ func badParam(name string) error {
 }
 
 type pageCursor struct {
-	Scope  string
-	AsOf   string
-	MaxID  int64
-	Last   string
-	ID     int64
-	Person string
+	Scope    string
+	AsOf     string
+	MaxID    int64
+	Revision int64
+	Last     string
+	ID       int64
+	Person   string
 }
 
 type report struct {
@@ -126,7 +127,7 @@ func (s *Server) readReport(kind string) endpoint {
 		}
 		var result any
 		err = s.db.Read(r.Context(), func(db storage.Reader) error {
-			projects, err := records(db, "SELECT id,name,created_at,write_key,sample_as_of FROM projects WHERE id=?", id)
+			projects, err := records(db, "SELECT id,name,created_at,write_key,sample_as_of,retention_days,retention_revision FROM projects WHERE id=?", id)
 			if err != nil {
 				return err
 			}
@@ -134,17 +135,22 @@ func (s *Server) readReport(kind string) endpoint {
 				return failure{404, "not_found", "Project not found. Check the project ID."}
 			}
 			project := projects[0]
+			revision := project["retention_revision"].(int64)
+			delete(project, "retention_revision")
+			if rawCursor != "" && cursor.Revision != revision {
+				return failure{409, "cursor_expired", "Retention or erasure changed this project. Restart from the first page."}
+			}
 			if kind == "setup" {
 				result = project
 				return nil
 			}
 			if rawCursor == "" {
-				cursor = pageCursor{Scope: scope, AsOf: time.Now().UTC().Format(stamp)}
+				cursor = pageCursor{Scope: scope, Revision: revision, AsOf: time.Now().UTC().Format(stamp)}
 				if frozen, ok := project["sample_as_of"].(string); ok {
 					cursor.AsOf = frozen
 				}
 				if kind == "people" || kind == "events" {
-					err = db.QueryRow("SELECT COALESCE((SELECT id FROM events WHERE project_id=? ORDER BY id DESC LIMIT 1),0)", id).Scan(&cursor.MaxID)
+					err = db.QueryRow("SELECT max(deleted_max_id,COALESCE((SELECT id FROM events WHERE project_id=?1 ORDER BY id DESC LIMIT 1),0)) FROM projects WHERE id=?1", id).Scan(&cursor.MaxID)
 					if err != nil {
 						return err
 					}
@@ -186,8 +192,6 @@ func (q report) page(kind string, withTotal bool) (any, error) {
 	if strings.ContainsRune(search, 0) {
 		return nil, badParam("q")
 	}
-	var countWhere string
-	var countArgs []any
 	query := ""
 	if kind == "events" {
 		if search != "" {
@@ -199,9 +203,6 @@ func (q report) page(kind string, withTotal bool) (any, error) {
 				where += " AND " + filter.column + "=?"
 				args = append(args, v)
 			}
-		}
-		if withTotal {
-			countWhere, countArgs = where, args
 		}
 		if q.cursor.Last != "" {
 			where += " AND (timestamp,id)<(?,?)"
@@ -220,7 +221,7 @@ func (q report) page(kind string, withTotal bool) (any, error) {
 		total := int64(len(rows))
 		if len(rows) > 30 {
 			if kind == "events" {
-				total, err = q.eventTotal(countWhere, countArgs)
+				total, err = q.eventTotal(where, args)
 			} else {
 				total, err = q.peopleTotal()
 			}
@@ -267,14 +268,20 @@ func (q report) peoplePage() (string, []any) {
  AND NOT EXISTS(SELECT 1 FROM daily_people later WHERE later.project_id=p.project_id
  AND later.distinct_id=p.distinct_id AND later.day>p.day AND later.day<=?4)
  ORDER BY last_ts DESC,distinct_id LIMIT 31
+), prior_activity AS (
+ SELECT e.distinct_id,1 n,e.timestamp first_ts,e.timestamp last_ts FROM changed c
+ CROSS JOIN events e INDEXED BY events_person ON e.project_id=?1 AND e.distinct_id=c.distinct_id
+ WHERE e.timestamp BETWEEN ?2 AND ?3 AND e.id<=?6
+ UNION ALL SELECT a.distinct_id,a.n,a.first_ts,a.last_ts FROM changed c
+ CROSS JOIN expired_counts a ON a.project_id=?1 AND a.distinct_id=c.distinct_id
+ WHERE a.day BETWEEN ?5 AND ?4
 ), snapshot AS (
  SELECT c.distinct_id,SUM(d.count) n,MIN(d.first_ts) first_seen,c.last_ts last_seen
  FROM candidates c CROSS JOIN daily_people d ON d.project_id=?1 AND d.distinct_id=c.distinct_id AND d.day BETWEEN ?5 AND ?4
  GROUP BY c.distinct_id,c.last_ts
- UNION ALL SELECT e.distinct_id,COUNT(*),MIN(e.timestamp),MAX(e.timestamp) last_seen
- FROM changed c CROSS JOIN events e INDEXED BY events_person ON e.project_id=?1 AND e.distinct_id=c.distinct_id
- WHERE e.timestamp BETWEEN ?2 AND ?3 AND e.id<=?6 AND (?7='' OR instr(lower(c.distinct_id),lower(?7))>0)
- GROUP BY e.distinct_id HAVING last_seen<?8 OR (last_seen=?8 AND e.distinct_id>?9)
+ UNION ALL SELECT distinct_id,SUM(n),MIN(first_ts),MAX(last_ts) last_seen FROM prior_activity
+ WHERE (?7='' OR instr(lower(distinct_id),lower(?7))>0)
+ GROUP BY distinct_id HAVING last_seen<?8 OR (last_seen=?8 AND distinct_id>?9)
 )
  SELECT * FROM snapshot ORDER BY last_seen DESC,distinct_id LIMIT 31`
 	last := q.cursor.Last
@@ -336,6 +343,18 @@ func (q report) overview(end time.Time) (any, error) {
 	for i, field := range []string{"current", "previous"} {
 		shift := -i * q.days
 		start, stop := q.start.AddDate(0, 0, shift), end.AddDate(0, 0, shift)
+		if field == "previous" {
+			var archived bool
+			day := stop.Format(time.DateOnly)
+			if err := q.db.QueryRow("SELECT EXISTS(SELECT 1 FROM expired_counts WHERE project_id=? AND day=?)", q.id, day).Scan(&archived); err != nil {
+				return nil, err
+			}
+			if archived {
+				// The archived day no longer has raw timestamps for a partial cutoff.
+				stop = stop.Truncate(24*time.Hour).AddDate(0, 0, 1).Add(-time.Microsecond)
+				result["previous_full_day"] = day
+			}
+		}
 		counts, args, partial, err := q.eventDays(start, stop)
 		if err != nil {
 			return nil, err

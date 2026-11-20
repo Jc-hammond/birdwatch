@@ -24,6 +24,7 @@ CREATE INDEX events_time ON events(project_id, timestamp, event, distinct_id);
 `,
 	`CREATE INDEX events_project_sequence ON events(project_id,id);`,
 	dailySchema,
+	retentionSchema,
 	`CREATE INDEX people_identity ON daily_people(project_id,distinct_id) WHERE previous_day='';`,
 }
 
