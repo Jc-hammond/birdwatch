@@ -186,7 +186,7 @@ func (q report) page(kind string, withTotal bool) (any, error) {
 	if strings.ContainsRune(search, 0) {
 		return nil, badParam("q")
 	}
-	var countQuery string
+	var countWhere string
 	var countArgs []any
 	query := ""
 	if kind == "events" {
@@ -201,7 +201,7 @@ func (q report) page(kind string, withTotal bool) (any, error) {
 			}
 		}
 		if withTotal {
-			countQuery, countArgs = "SELECT count(*) FROM events WHERE "+where, args
+			countWhere, countArgs = where, args
 		}
 		if q.cursor.Last != "" {
 			where += " AND (timestamp,id)<(?,?)"
@@ -210,18 +210,6 @@ func (q report) page(kind string, withTotal bool) (any, error) {
 		query = "SELECT " + eventColumns + " FROM events WHERE " + where + " ORDER BY timestamp DESC,id DESC LIMIT 31"
 	} else {
 		query, args = q.peoplePage()
-		if withTotal {
-			// The first qualifying day per visitor has a predecessor outside the
-			// window. first_ts bounds the final partial day at this snapshot.
-			countQuery = `SELECT count(*) FROM daily_people WHERE project_id=? AND day BETWEEN ? AND ?
- AND previous_day<? AND first_ts<=?`
-			startDay := q.start.Format(time.DateOnly)
-			countArgs = []any{q.id, startDay, q.cursor.AsOf[:10], startDay, q.cursor.AsOf}
-			if search != "" {
-				countQuery += " AND instr(lower(distinct_id),lower(?))>0"
-				countArgs = append(countArgs, search)
-			}
-		}
 	}
 	rows, err := records(q.db, query, args...)
 	if err != nil {
@@ -231,7 +219,12 @@ func (q report) page(kind string, withTotal bool) (any, error) {
 	if withTotal {
 		total := int64(len(rows))
 		if len(rows) > 30 {
-			if err := q.db.QueryRow(countQuery, countArgs...).Scan(&total); err != nil {
+			if kind == "events" {
+				total, err = q.eventTotal(countWhere, countArgs)
+			} else {
+				total, err = q.peopleTotal()
+			}
+			if err != nil {
 				return nil, err
 			}
 		}

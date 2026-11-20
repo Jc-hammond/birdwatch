@@ -230,6 +230,26 @@ func TestSearchAndPagination(t *testing.T) {
 			seen[row.Person] = true
 		}
 		s.expect(t, 400, "GET", projectPath(other.id, path+suffix), nil, nil)
+		s.expect(t, 400, "GET", projectPath(p.id, path+suffix+"&include_total=1"), nil, nil)
+	}
+	// A matching event name and a matching person can refer to the same row.
+	batch = nil
+	for _, name := range []string{"needle", "unrelated"} {
+		for _, person := range []string{"needle-person", "someone"} {
+			for range 20 {
+				batch = append(batch, event(name, person))
+			}
+		}
+	}
+	s.capture(t, p, object{"batch": batch}, 200)
+	for _, tc := range []struct {
+		query string
+		want  int
+	}{{"q=nEEdle", 60}, {"q=needle&name=needle", 40}, {"q=needle&person=needle-person", 40}, {"q=no-matches", 0}} {
+		got := decode[page](t, s.report(t, p, "events?include_total=1&"+tc.query))
+		if got.Total == nil || *got.Total != tc.want {
+			t.Fatalf("unexpected matching event count for %s", tc.query)
+		}
 	}
 }
 
