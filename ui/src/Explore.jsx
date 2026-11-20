@@ -21,18 +21,24 @@ export function Explorer({ view, project, days, filters, go, inspect }) {
   const isPeople = view === "People";
   const [q, setQ] = useState(""),
     [search, setSearch] = useState(""),
-    [cursors, setCursors] = useState([]);
-  const offset = cursors.length * 30;
+    [pages, setPages] = useState([]),
+    [pageIndex, setPageIndex] = useState(0);
+  const offset = pageIndex * 30;
   useEffect(() => {
     const t = setTimeout(() => {
-      setSearch(q.trim());
-      setCursors([]);
+      if (q.trim() !== search) {
+        setSearch(q.trim());
+        setPageIndex(0);
+        setPages([]);
+      }
     }, 180);
     return () => clearTimeout(t);
-  }, [q]);
+  }, [q, search]);
   const params = new URLSearchParams({ days, q: search, ...filters });
-  if (cursors.length) params.set("cursor", cursors.at(-1));
-  const state = useData(
+  if (pageIndex) params.set("cursor", pages[pageIndex - 1].next);
+  const cached = pages[pageIndex];
+  const live = useData(
+    cached ? null :
     "/api/projects/" +
       project.id +
       "/" +
@@ -42,6 +48,7 @@ export function Explorer({ view, project, days, filters, go, inspect }) {
     0,
     project.sample_as_of || offset ? 0 : 5000
   );
+  const state = cached ? { data: cached } : live;
   const rows = state.data?.rows;
   return (
     <section className="card explorer">
@@ -166,7 +173,7 @@ export function Explorer({ view, project, days, filters, go, inspect }) {
             <button
               className="secondary small"
               disabled={!offset}
-              onClick={() => setCursors(cursors.slice(0,-1))}
+              onClick={() => setPageIndex(pageIndex - 1)}
             >
               <ChevronLeft size={14} />
               Previous
@@ -174,7 +181,10 @@ export function Explorer({ view, project, days, filters, go, inspect }) {
             <button
               className="secondary small"
               disabled={!state.data.next}
-              onClick={() => setCursors([...cursors,state.data.next])}
+              onClick={() => {
+                if (!cached) setPages([...pages, state.data]);
+                setPageIndex(pageIndex + 1);
+              }}
             >
               Next
               <ChevronRight size={14} />

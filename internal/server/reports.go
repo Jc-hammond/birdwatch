@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -179,13 +178,15 @@ func (q report) page(kind string) (any, error) {
 	where := inWindow + " AND id<=?"
 	args := []any{q.id, q.start.Format(stamp), q.cursor.AsOf, q.cursor.MaxID}
 	if search := q.params.Get("q"); search != "" {
-		literal := "%" + strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(search) + "%"
+		if strings.ContainsRune(search, 0) {
+			return nil, badParam("q")
+		}
 		if kind == "events" {
-			where += " AND (event LIKE ? ESCAPE '!' OR distinct_id LIKE ? ESCAPE '!')"
-			args = append(args, literal, literal)
+			where += " AND (instr(lower(event),lower(?))>0 OR instr(lower(distinct_id),lower(?))>0)"
+			args = append(args, search, search)
 		} else {
-			where += " AND distinct_id LIKE ? ESCAPE '!'"
-			args = append(args, literal)
+			where += " AND instr(lower(distinct_id),lower(?))>0"
+			args = append(args, search)
 		}
 	}
 	query := ""
@@ -258,7 +259,7 @@ const totals = "COUNT(*) n,COUNT(DISTINCT distinct_id) people,COALESCE(SUM(event
 func metrics(n, people, pages int64) [4]float64 {
 	var avg float64
 	if people > 0 {
-		avg = math.RoundToEven(10*float64(n)/float64(people)) / 10
+		avg, _ = strconv.ParseFloat(strconv.FormatFloat(float64(n)/float64(people), 'f', 1, 64), 64)
 	}
 	return [4]float64{float64(n), float64(people), float64(pages), avg}
 }
