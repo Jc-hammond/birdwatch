@@ -1,116 +1,46 @@
+import { encodeEvent, invalid, type EncodedEvent } from "../../sdk/src/event.js";
+import { captureEndpoint, configure, payload, send } from "../../sdk/src/transport.js";
+import type { ClientOptions, EventCatalog, ServerEvent } from "../../sdk/src/types.js";
+import { utf8Length } from "../../sdk/src/utf8.js";
 import { exactOutbox } from "./outbox.js";
-export {
-  exactOutboxPath,
-  type ExactSQLite,
-  type QueuedExactEvent,
-} from "./outbox.js";
-import { captureEndpoint } from "../endpoint.js";
-import {
-  BirdwatchError,
-  invalid,
-  snapshotProperties,
-  stringField,
-  utf8Length,
-  type BatchCounts,
-  type Properties,
-} from "@birdwatch/sdk/internal";
-export { BirdwatchError };
-export type { BatchCounts, Properties };
+export { exactOutboxPath, type ExactStorage, type QueuedExactEvent } from "./outbox.js";
+export { BirdwatchError, type BatchCounts, type Properties } from "../../sdk/src/types.js";
 
-export interface ExactEvent {
-  /** Stable per occurrence within this Birdwatch project. Keep it when retrying. */
-  id: string;
-  distinctId: string;
-  event: string;
-  properties?: Properties;
-  /** ISO 8601 with timezone. Omit to use the collector's clock. */
-  timestamp?: string;
+export type ExactEvent = Omit<ServerEvent<EventCatalog>, "timestamp"> & { timestamp?: string };
+export interface ExactOptions extends Pick<ClientOptions, "host" | "writeKey" | "maxQueueSize" | "timeoutMs" | "onError"> {
+  fetch(url: string, init: RequestInit & { exactTimeout: number }): Promise<Response>;
 }
-export interface ExactOptions {
-  host: string;
-  writeKey: string;
-  /** Pass the fetch in your app.ts answer scope so Exact enforces your grant. */
-  fetch: (
-    url: string,
-    init: {
-      method: "POST";
-      headers: Record<string, string>;
-      body: string;
-      exactTimeout: number;
-    }
-  ) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
-  timeoutMs?: number;
+function occurrence(value: unknown) {
+  if (value === undefined) return;
+  if (typeof value !== "string" || value.length > 64 || !/(Z|[+-]\d\d:\d\d)$/.test(value) || !Number.isFinite(Date.parse(value)))
+    invalid("Use an ISO timestamp with a time zone, up to 64 characters.");
+  return value;
+}
+function encode(event: ExactEvent) {
+  return encodeEvent(event.event, event.distinctId, event.properties, { id: event.id, timestamp: event.timestamp }, occurrence);
 }
 export function createExactClient(options: ExactOptions) {
-  const endpoint = captureEndpoint(options?.host);
-  const key = stringField(options.writeKey, "writeKey", 128);
-  const timeout = options.timeoutMs ?? 5000;
-  if (!Number.isInteger(timeout) || timeout < 1 || timeout > 120000)
-    invalid("timeoutMs must be 1–120000.");
-  const request = options.fetch;
-  if (typeof request !== "function") invalid("Pass Exact's scoped fetch.");
-  function normalize(e: ExactEvent): ExactEvent {
-    return {
-      id: stringField(e.id, "id", 128),
-      event: stringField(e.event, "event", 128),
-      distinctId: stringField(e.distinctId, "distinctId", 256),
-      ...(e.timestamp === undefined
-        ? {}
-        : { timestamp: stringField(e.timestamp, "timestamp", 64) }),
-      properties: JSON.parse(
-        snapshotProperties(e.properties === undefined ? {} : e.properties)
-      ),
-    };
+  if (typeof options?.fetch !== "function") invalid("Pass Exact's scoped fetch.");
+  const config = configure({
+    ...options,
+    fetch: (url, init) => options.fetch(String(url), { ...init, exactTimeout: options.timeoutMs ?? 5000 }),
+  }, captureEndpoint);
+  const overhead = utf8Length(payload(config.key, [], "2000-01-01T00:00:00.000Z"));
+  function deliver(rows: EncodedEvent[], at: number, background: boolean) {
+    return send(config, payload(config.key, rows, new Date(at).toISOString()), rows.length, false, background);
   }
-  async function captureBatch(
-    events: readonly ExactEvent[]
-  ): Promise<BatchCounts> {
-    if (!Array.isArray(events) || events.length < 1 || events.length > 100)
-      invalid("Send 1–100 events per batch.");
-    const batch = events.map((e) => {
-      const row = normalize(e);
-      return {
-        uuid: row.id,
-        event: row.event,
-        distinct_id: row.distinctId,
-        timestamp: row.timestamp,
-        properties: row.properties,
-      };
-    });
-    const body = JSON.stringify({ api_key: key, batch });
-    if (utf8Length(body) > 1048576)
-      invalid("Batch exceeds the collector's 1 MiB request limit.");
-    const res = await request(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body,
-      exactTimeout: timeout,
-    });
-    if (!res.ok)
-      throw new BirdwatchError(
-        "http",
-        "Collector returned HTTP " + res.status,
-        res.status
-      );
-    const ack = (await res.json().catch(() => null)) as BatchCounts | null;
-    if (
-      !ack ||
-      !Number.isSafeInteger(ack.accepted) ||
-      !Number.isSafeInteger(ack.duplicates) ||
-      ack.accepted < 0 ||
-      ack.duplicates < 0 ||
-      ack.accepted + ack.duplicates !== batch.length
-    )
-      throw new BirdwatchError(
-        "invalid_response",
-        "Collector returned an invalid acknowledgement."
-      );
-    return { accepted: ack.accepted, duplicates: ack.duplicates };
+  async function captureBatch(events: readonly ExactEvent[], at: number) {
+    if (!Array.isArray(events) || !events.length || events.length > 100) invalid("Send 1–100 events per batch.");
+    if (!Number.isFinite(at)) invalid("Pass epoch milliseconds from Contract.");
+    const rows = events.map(encode);
+    if (rows.reduce((size, row) => size + row.bytes + 1, overhead - 1) > 1048576) invalid("Limit the request to 1 MiB.");
+    const result = await deliver(rows, at, false);
+    for (const error of result.rejected.values()) config.report(error);
+    return result.counts;
   }
-  const capture = (event: ExactEvent) => captureBatch([event]);
   return {
     captureBatch,
-    capture,
-    ...exactOutbox(JSON.stringify([endpoint, key]), capture, normalize),
+    capture: (event: ExactEvent, at: number) => captureBatch([event], at),
+    ...exactOutbox(JSON.stringify([config.endpoint, config.key]), config.maxQueue, overhead, encode, deliver, config.report),
   };
 }

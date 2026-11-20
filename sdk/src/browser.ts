@@ -15,7 +15,7 @@ export function createBrowserClient<C extends CatalogShape<C> = EventCatalog>(
     invalid(
       "createBrowserClient requires a browser. Use createServerClient on the server."
     );
-  const queue = new DeliveryQueue(options, undefined, true);
+  const queue = new DeliveryQueue(options, true);
   const persistence = options.persistence ?? "localStorage";
   if (!["memory", "localStorage"].includes(persistence))
     invalid("Unknown identity persistence mode.");
