@@ -14,8 +14,6 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
-
-	"github.com/Jc-hammond/birdwatch/internal/storage"
 )
 
 type fields = map[string]json.RawMessage
@@ -99,19 +97,6 @@ func (s *Server) createProject(r *http.Request) (any, error) {
 		return tx.QueryRowContext(ctx, "INSERT INTO projects(name,write_key,created_at) VALUES(?,?,?) RETURNING id", strings.TrimSpace(name), "bw_"+rand.Text(), time.Now().UTC().Format(stamp)).Scan(&id)
 	})
 	return httpResult{201, map[string]int64{"id": id}}, err
-}
-
-func (s *Server) setup(r *http.Request) (any, error) {
-	var id int64
-	var name, created string
-	var key, asOf *string
-	err := s.db.Read(r.Context(), func(reader storage.Reader) error {
-		return reader.QueryRow("SELECT id,name,created_at,write_key,sample_as_of FROM projects WHERE id=?", r.PathValue("project")).Scan(&id, &name, &created, &key, &asOf)
-	})
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, failure{404, "not_found", "Project not found. Check the project ID."}
-	}
-	return map[string]any{"id": id, "name": name, "created_at": created, "write_key": key, "sample_as_of": asOf}, err
 }
 
 type rejection struct {

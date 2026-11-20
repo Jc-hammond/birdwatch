@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
+	"net/url"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -91,15 +91,6 @@ func TestIngestionPersistenceAndReports(t *testing.T) {
 
 	s.stop()
 	s = start(t, db, false, "")
-	if os.Getenv("BIRDWATCH_REFERENCE") == "go" {
-		rows := s.captureRows(t, p)
-		check(t, "stored after reopening", len(rows), 3)
-		if len(rows) > 0 {
-			check(t, "first copy after reopening", rows[0].Properties["screen"], "welcome")
-		}
-		check(t, "second project", len(s.captureRows(t, other)), 0)
-		return // BIR-14 enables the report assertions below for Go.
-	}
 	report := s.overview(t, p, 7)
 	check(t, "current", report.Current, []float64{3, 2, 2, 1.5})
 	var sum float64
@@ -130,7 +121,7 @@ func TestBatchRollback(t *testing.T) {
 	p := s.createProject(t, "Batch")
 	// F1 makes rollback opt-in. The same rollback assertions apply to both servers.
 	s.capture(t, p, object{"atomic": true, "batch": []object{event("first", "a"), {"event": ""}}}, 400)
-	check(t, "stored after rollback", len(s.captureRows(t, p)), 0)
+	check(t, "stored after rollback", s.overview(t, p, 7).Current[0], float64(0))
 	r := s.capture(t, p, object{"batch": []object{event("first", "a"), event("last", "a")}}, 200)
 	expectCounts(t, r, 2, 0)
 }
@@ -180,21 +171,61 @@ func TestInputAndProjectBoundaries(t *testing.T) {
 		s.capture(t, p, fields, 400)
 	}
 	s.expect(t, 400, "POST", "/api/projects", object{"name": " "}, nil)
-	s.createProject(t, "Example")
+	other := s.createProject(t, "Example")
+	s.capture(t, other, event("only-in-other", "private-person"), 200)
+	check(t, "cross-project parameter", rowCount(t, s.report(t, p, fmt.Sprintf("events?project_id=%d", other.id))), 0)
+	s.expect(t, 404, "GET", projectPath(9999999, "overview"), nil, nil)
+	s.expect(t, 400, "GET", projectPath(p.id, "events?days=3"), nil, nil)
 }
 
 func TestSearchAndPagination(t *testing.T) {
 	s := startEmpty(t)
 	p := s.createProject(t, "Search")
 	var batch []object
-	for range 32 {
-		batch = append(batch, event("a_b", "%"))
+	at := time.Now().UTC().Add(-time.Minute)
+	for i := range 32 {
+		batch = append(batch, object{"event": "a_b", "distinct_id": fmt.Sprintf("%%%02d", i), "timestamp": at})
 	}
 	batch = append(batch, event("axb", "outside"))
 	s.capture(t, p, object{"batch": batch}, 200)
-	check(t, "first page", rowCount(t, s.report(t, p, "events?q=a_b")), 30)
-	check(t, "second page", rowCount(t, s.report(t, p, "events?q=a_b&offset=30")), 2)
-	check(t, "people matching literal percent", rowCount(t, s.report(t, p, "people?q=%25")), 1)
+	other := s.createProject(t, "Other")
+	type page struct {
+		Rows []struct {
+			ID     int
+			Person string `json:"distinct_id"`
+		}
+		Next *string
+		AsOf string `json:"as_of"`
+	}
+	for _, path := range []string{"events?q=a_b", "people?q=%25"} {
+		first := decode[page](t, s.report(t, p, path))
+		if len(first.Rows) != 30 || first.Next == nil {
+			t.Fatalf("%s: expected first page with cursor", path)
+		}
+		later := object{"event": "a_b", "distinct_id": "%late", "timestamp": at.Add(-time.Second)}
+		// New late-arriving rows must not enter the first request's snapshot.
+		if strings.HasPrefix(path, "people") {
+			later["distinct_id"] = "another%"
+		}
+		s.capture(t, p, later, 200)
+		suffix := "&cursor=" + url.QueryEscape(*first.Next)
+		next := decode[page](t, s.report(t, p, path+suffix))
+		expected := 2
+		if strings.HasPrefix(path, "people") {
+			expected++
+		} // Event inserted during the preceding scenario.
+		if len(next.Rows) != expected || next.Next != nil || next.AsOf != first.AsOf {
+			t.Fatal("unstable or incomplete next page")
+		}
+		seen := map[string]bool{}
+		for _, row := range append(first.Rows, next.Rows...) {
+			if seen[row.Person] || row.Person == later["distinct_id"] {
+				t.Fatal("snapshot repeated a person or admitted a later arrival")
+			}
+			seen[row.Person] = true
+		}
+		s.expect(t, 400, "GET", projectPath(other.id, path+suffix), nil, nil)
+	}
 }
 
 func TestHostOriginAndPassword(t *testing.T) {
@@ -254,7 +285,7 @@ func TestAuthenticatedProjectReadsAndPublicCapture(t *testing.T) {
 	const password = "sample-test-password"
 	s = start(t, db, false, password)
 	auth := "Basic " + base64.StdEncoding.EncodeToString([]byte("admin:"+password))
-	r := s.expect(t, 200, "GET", projectPath(p.id, "setup"), nil, http.Header{"Authorization": {auth}})
+	r := s.expect(t, 200, "GET", "/api/projects", nil, http.Header{"Authorization": {auth}})
 	if r.header.Get("Access-Control-Allow-Origin") != "" {
 		t.Error("private API returned a cross-origin access header")
 	}

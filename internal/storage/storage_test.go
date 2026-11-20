@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -24,7 +25,7 @@ func TestFailedMigrationPreservesVersionDataAndBackup(t *testing.T) {
 	if err := s.migrate(ctx, append(append([]string{}, migrations...), broken), true); err == nil {
 		t.Fatal("broken migration succeeded")
 	}
-	for _, file := range []string{path, path + ".v1.bak"} {
+	for _, file := range []string{path, fmt.Sprintf("%s.v%d.bak", path, len(migrations))} {
 		db, err := sql.Open("sqlite3", fileURI(file, "ro"))
 		if err != nil {
 			t.Fatal(err)
@@ -36,7 +37,7 @@ func TestFailedMigrationPreservesVersionDataAndBackup(t *testing.T) {
 			err = db.QueryRow("SELECT name FROM projects WHERE id=1").Scan(&name)
 		}
 		db.Close()
-		if err != nil || version != 1 || name != "before" {
+		if err != nil || version != len(migrations) || name != "before" {
 			t.Fatalf("database %s: version %d, original row present %t, err %v", filepath.Base(file), version, name == "before", err)
 		}
 	}
