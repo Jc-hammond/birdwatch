@@ -106,7 +106,17 @@ class SwiftDriver {
         return;
       }
       this.now = Math.max(this.now, due);
-      await this.delivery("tick");
+      if (this.config.lockFirstSQLiteTimer && !this.lockExercised) {
+        this.lockExercised = true;
+        await this.send("lockOutbox");
+        try {
+          await this.delivery("tick");
+        } finally {
+          await this.send("unlockOutbox");
+        }
+      } else {
+        await this.delivery("tick");
+      }
     }
     throw Error("Swift delivery repeatedly scheduled an immediate retry");
   }

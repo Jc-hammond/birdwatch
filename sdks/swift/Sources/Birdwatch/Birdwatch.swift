@@ -296,7 +296,11 @@ public actor BirdwatchClient {
     guard !closed else { throw BirdwatchError.closed }
     guard !paused else { throw BirdwatchError.http(401) }
     guard environment.now() >= notBefore else { throw BirdwatchError.http(429) }
-    let last = try await Outbox.perform { [outbox] in try outbox.lastSequence() }
+    let last: Int64
+    do { last = try await Outbox.perform { [outbox] in try outbox.lastSequence() } } catch {
+      scheduleRetry(after: nil)
+      throw error
+    }
     while !closed && !paused {
       if let active = inFlight, !background {
         _ = try await active.value
