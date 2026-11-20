@@ -21,6 +21,7 @@ type object = map[string]any
 
 type server struct {
 	url  string
+	db   string
 	stop func()
 }
 
@@ -44,17 +45,8 @@ var pythonGaps = map[string]string{
 
 // Remove each entry as its endpoints land. An unlisted case always runs.
 var goGaps = map[string]string{
-	"TestCaptureErrors":                             "capture and project creation are not ported",
-	"TestBatchResults":                              "capture batches are not ported",
-	"TestCaptureClock":                              "capture timestamps and reports are not ported",
-	"TestTextPlainCapture":                          "plain-text capture is not ported",
-	"TestCapturePreflight":                          "capture preflight is not ported",
-	"TestConcurrentCapture":                         "capture and event counts are not ported",
-	"TestIngestionPersistenceAndReports":            "capture and reports are not ported",
-	"TestBatchRollback":                             "capture and reports are not ported",
 	"TestSameTimeOrderAndRepeatedFunnelSteps":       "funnel reports are not ported",
 	"TestUTCDayWindow":                              "overview reports are not ported",
-	"TestInputAndProjectBoundaries":                 "project reads are not ported",
 	"TestSearchAndPagination":                       "event and people reports are not ported",
 	"TestAuthenticatedProjectReadsAndPublicCapture": "project creation, reads and capture are not ported",
 	"TestDemoProjectIsSeparateAndFrozen":            "the demo project is not ported",
@@ -140,7 +132,7 @@ func start(t *testing.T, db string, demo bool, password string) server {
 		conn, err := net.DialTimeout("tcp", addr.String(), 100*time.Millisecond)
 		if err == nil {
 			conn.Close()
-			return server{"http://" + addr.String(), stop}
+			return server{"http://" + addr.String(), db, stop}
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

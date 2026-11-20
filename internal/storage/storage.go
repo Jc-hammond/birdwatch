@@ -132,3 +132,18 @@ func (s *Store) Health(ctx context.Context) error {
 	}
 	return nil
 }
+
+// Write reserves the single writer and bounds both the queue wait and the transaction.
+func (s *Store) Write(ctx context.Context, apply func(context.Context, *sql.Tx) error) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	tx, err := s.writer.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := apply(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
