@@ -59,6 +59,9 @@ func copyDatabase(ctx context.Context, source, destination string, publish func(
 	}
 	defer src.Close()
 	src.SetInterrupt(ctx)
+	if err = src.BusyTimeout(5 * time.Second); err != nil {
+		return err
+	}
 	// This dedicated reader pins one WAL snapshot while capture continues.
 	if err = src.Exec("BEGIN; SELECT count(*) FROM sqlite_schema"); err != nil {
 		return err
