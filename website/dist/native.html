@@ -58,7 +58,7 @@ const sources: Sources = {
 <pre><code class="language-swift">import Foundation
 import Birdwatch
 
-let analytics = try BirdwatchClient(
+let analytics = try await BirdwatchClient(
     host: URL(string: &quot;https://analytics.example.com&quot;)!,
     writeKey: &quot;YOUR_PROJECT_WRITE_KEY&quot;
 )

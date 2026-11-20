@@ -25,8 +25,5 @@
     "LICENSE",
     "README.md",
     "example"
-  ],
-  "dependencies": {
-    "@birdwatch/sdk": "0.1.0"
-  }
+  ]
 }

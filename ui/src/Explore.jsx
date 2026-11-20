@@ -21,16 +21,24 @@ export function Explorer({ view, project, days, filters, go, inspect }) {
   const isPeople = view === "People";
   const [q, setQ] = useState(""),
     [search, setSearch] = useState(""),
-    [offset, setOffset] = useState(0);
+    [pages, setPages] = useState([]),
+    [pageIndex, setPageIndex] = useState(0);
+  const offset = pageIndex * 30;
   useEffect(() => {
     const t = setTimeout(() => {
-      setSearch(q.trim());
-      setOffset(0);
+      if (q.trim() !== search) {
+        setSearch(q.trim());
+        setPageIndex(0);
+        setPages([]);
+      }
     }, 180);
     return () => clearTimeout(t);
-  }, [q]);
-  const params = new URLSearchParams({ days, q: search, offset, ...filters });
-  const state = useData(
+  }, [q, search]);
+  const params = new URLSearchParams({ days, q: search, ...filters });
+  if (pageIndex) params.set("cursor", pages[pageIndex - 1].next);
+  const cached = pages[pageIndex];
+  const live = useData(
+    cached ? null :
     "/api/projects/" +
       project.id +
       "/" +
@@ -40,6 +48,7 @@ export function Explorer({ view, project, days, filters, go, inspect }) {
     0,
     project.sample_as_of || offset ? 0 : 5000
   );
+  const state = cached ? { data: cached } : live;
   const rows = state.data?.rows;
   return (
     <section className="card explorer">
@@ -164,15 +173,18 @@ export function Explorer({ view, project, days, filters, go, inspect }) {
             <button
               className="secondary small"
               disabled={!offset}
-              onClick={() => setOffset(Math.max(0, offset - 30))}
+              onClick={() => setPageIndex(pageIndex - 1)}
             >
               <ChevronLeft size={14} />
               Previous
             </button>
             <button
               className="secondary small"
-              disabled={!state.data.more}
-              onClick={() => setOffset(offset + 30)}
+              disabled={!state.data.next}
+              onClick={() => {
+                if (!cached) setPages([...pages, state.data]);
+                setPageIndex(pageIndex + 1);
+              }}
             >
               Next
               <ChevronRight size={14} />

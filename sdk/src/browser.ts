@@ -15,7 +15,7 @@ export function createBrowserClient<C extends CatalogShape<C> = EventCatalog>(
     invalid(
       "createBrowserClient requires a browser. Use createServerClient on the server."
     );
-  const queue = new DeliveryQueue(options);
+  const queue = new DeliveryQueue(options, true);
   const persistence = options.persistence ?? "localStorage";
   if (!["memory", "localStorage"].includes(persistence))
     invalid("Unknown identity persistence mode.");
@@ -52,12 +52,14 @@ export function createBrowserClient<C extends CatalogShape<C> = EventCatalog>(
       event.storageArea === storage &&
       (event.key === key || event.key === null)
     ) {
-      person = readStored() ?? newId();
+      const stored = readStored();
+      if (stored) person = stored;
+      else identify(newId());
     }
   }
   function flushPage() {
     // Individual capture promises still report any failure to their caller.
-    void queue.flush().catch(() => {});
+    queue.unload();
   }
   function onVisibility() {
     if (document.visibilityState === "hidden") flushPage();

@@ -42,7 +42,6 @@
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "npm run build && tsc --project test/tsconfig.json && node --test test/*.test.mjs",
-    "test:integration": "node --test test/collector.mjs"
+    "test": "npm run build && tsc --project test/tsconfig.json && node --test test/*.test.mjs"
   }
 }

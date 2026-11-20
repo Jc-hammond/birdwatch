@@ -20,7 +20,7 @@ for (const name of ["exact", "react-native"]) {
       platform: "neutral",
       bundle: true,
       target: "es2020",
-      external: ["@birdwatch/sdk/internal", "react-native", "@react-native-async-storage/async-storage"],
+      external: ["react-native", "@react-native-async-storage/async-storage"],
       legalComments: "none",
     });
   }

@@ -38,22 +38,29 @@ func fileURI(path, mode string) string {
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
+	return open(ctx, path, true)
+}
+
+func open(ctx context.Context, path string, create bool) (*Store, error) {
 	path, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
 	}
-	if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return nil, err
-	}
-	// Reserve a new file with owner-only permissions before SQLite opens it.
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
-	existing := errors.Is(err, os.ErrExist)
-	if err != nil && !existing {
-		return nil, err
-	}
-	if f != nil {
-		if err = f.Close(); err != nil {
+	existing := true
+	if create {
+		if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			return nil, err
+		}
+		// Reserve a new file with owner-only permissions before SQLite opens it.
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
+		existing = errors.Is(err, os.ErrExist)
+		if err != nil && !existing {
+			return nil, err
+		}
+		if f != nil {
+			if err = f.Close(); err != nil {
+				return nil, err
+			}
 		}
 	}
 	writer, err := sql.Open("sqlite3", fileURI(path, "rw"))
@@ -131,4 +138,28 @@ func (s *Store) Health(ctx context.Context) error {
 		return errors.New("database schema unavailable")
 	}
 	return nil
+}
+
+// Write reserves the single writer and bounds both the queue wait and the transaction.
+func (s *Store) Write(ctx context.Context, apply func(context.Context, *sql.Tx) error) (err error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer func() {
+		if err != nil && ctx.Err() != nil {
+			err = ctx.Err()
+		}
+		cancel()
+	}()
+	return s.write(ctx, apply)
+}
+
+func (s *Store) write(ctx context.Context, apply func(context.Context, *sql.Tx) error) error {
+	tx, err := s.writer.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := apply(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

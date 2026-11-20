@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -170,21 +172,61 @@ func TestInputAndProjectBoundaries(t *testing.T) {
 		s.capture(t, p, fields, 400)
 	}
 	s.expect(t, 400, "POST", "/api/projects", object{"name": " "}, nil)
-	s.createProject(t, "Example")
+	other := s.createProject(t, "Example")
+	s.capture(t, other, event("only-in-other", "private-person"), 200)
+	check(t, "cross-project parameter", rowCount(t, s.report(t, p, fmt.Sprintf("events?project_id=%d", other.id))), 0)
+	s.expect(t, 404, "GET", projectPath(9999999, "overview"), nil, nil)
+	s.expect(t, 400, "GET", projectPath(p.id, "events?days=3"), nil, nil)
 }
 
 func TestSearchAndPagination(t *testing.T) {
 	s := startEmpty(t)
 	p := s.createProject(t, "Search")
 	var batch []object
-	for range 32 {
-		batch = append(batch, event("a_b", "%"))
+	at := time.Now().UTC().Add(-time.Minute)
+	for i := range 32 {
+		batch = append(batch, object{"event": "a_b", "distinct_id": fmt.Sprintf("%%%02d", i), "timestamp": at})
 	}
 	batch = append(batch, event("axb", "outside"))
 	s.capture(t, p, object{"batch": batch}, 200)
-	check(t, "first page", rowCount(t, s.report(t, p, "events?q=a_b")), 30)
-	check(t, "second page", rowCount(t, s.report(t, p, "events?q=a_b&offset=30")), 2)
-	check(t, "people matching literal percent", rowCount(t, s.report(t, p, "people?q=%25")), 1)
+	other := s.createProject(t, "Other")
+	type page struct {
+		Rows []struct {
+			ID     int
+			Person string `json:"distinct_id"`
+		}
+		Next *string
+		AsOf string `json:"as_of"`
+	}
+	for _, path := range []string{"events?q=a_b", "people?q=%25"} {
+		first := decode[page](t, s.report(t, p, path))
+		if len(first.Rows) != 30 || first.Next == nil {
+			t.Fatalf("%s: expected first page with cursor", path)
+		}
+		later := object{"event": "a_b", "distinct_id": "%late", "timestamp": at.Add(-time.Second)}
+		// New late-arriving rows must not enter the first request's snapshot.
+		if strings.HasPrefix(path, "people") {
+			later["distinct_id"] = "another%"
+		}
+		s.capture(t, p, later, 200)
+		suffix := "&cursor=" + url.QueryEscape(*first.Next)
+		next := decode[page](t, s.report(t, p, path+suffix))
+		expected := 2
+		if strings.HasPrefix(path, "people") {
+			expected++
+		} // Event inserted during the preceding scenario.
+		if len(next.Rows) != expected || next.Next != nil || next.AsOf != first.AsOf {
+			t.Fatal("unstable or incomplete next page")
+		}
+		seen := map[string]bool{}
+		for _, row := range append(first.Rows, next.Rows...) {
+			if seen[row.Person] || row.Person == later["distinct_id"] {
+				t.Fatal("snapshot repeated a person or admitted a later arrival")
+			}
+			seen[row.Person] = true
+		}
+		s.expect(t, 400, "GET", projectPath(other.id, path+suffix), nil, nil)
+	}
 }
 
 func TestHostOriginAndPassword(t *testing.T) {
@@ -217,18 +259,8 @@ func TestHostOriginAndPassword(t *testing.T) {
 		check(t, "public script CORS", script.header.Get("Access-Control-Allow-Origin"), "*")
 		check(t, "referrer policy", script.header.Get("Referrer-Policy"), "no-referrer")
 		check(t, "content sniffing", script.header.Get("X-Content-Type-Options"), "nosniff")
-		// Access policy applies even while the capture handler is being ported.
-		capture, err := s.request("OPTIONS", "/api/capture", nil, public)
-		if err != nil {
-			t.Fatal(err)
-		}
-		switch capture.status {
-		case http.StatusNoContent:
-		case http.StatusNotFound:
-			check(t, "unported capture route", errorBody(t, capture).Code, "not_found")
-		default:
-			t.Fatalf("public capture preflight returned HTTP %d", capture.status)
-		}
+		// Capture remains public on a password-protected instance.
+		capture := s.expect(t, 204, "OPTIONS", "/api/capture", nil, public)
 		check(t, "public capture challenge", capture.header.Get("WWW-Authenticate"), "")
 		check(t, "public capture CORS", capture.header.Get("Access-Control-Allow-Origin"), "*")
 	})
@@ -290,4 +322,17 @@ func TestDemoProjectIsSeparateAndFrozen(t *testing.T) {
 	if !report.AsOf.Equal(first.AsOf) || report.Current[0] <= 0 {
 		t.Error("demo overview must have events and use the frozen sample time")
 	}
+	if os.Getenv("BIRDWATCH_REFERENCE") != "python" {
+		fresh := start(t, filepath.Join(t.TempDir(), "fresh.db"), true, "")
+		const report = "overview?days=30"
+		if !reflect.DeepEqual(decode[object](t, fresh.report(t, p, report)), decode[object](t, s.report(t, p, report))) {
+			t.Error("fresh installations produced different sample reports")
+		}
+	}
+	empty := startEmpty(t)
+	projects := decode[struct{ Projects []sample }](t, empty.expect(t, 200, "GET", "/api/projects", nil, nil)).Projects
+	if len(projects) != 1 || !projects[0].AsOf.IsZero() {
+		t.Fatal("expected one empty, writable project with --no-demo")
+	}
+	check(t, "empty project events", empty.overview(t, project{id: projects[0].ID}, 30).Current[0], float64(0))
 }

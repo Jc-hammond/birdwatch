@@ -17,6 +17,17 @@ import (
 func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if len(os.Args) > 1 && os.Args[1] == "rebuild-rollups" {
+		flags := flag.NewFlagSet("birdwatch rebuild-rollups", flag.ContinueOnError)
+		path := flags.String("db", config.DatabasePath(), "SQLite database to rebuild")
+		if err := flags.Parse(os.Args[2:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 0 {
+			return errors.New("usage: birdwatch rebuild-rollups [--db path]")
+		}
+		return storage.RebuildRollups(ctx, *path)
+	}
 	if len(os.Args) > 1 && os.Args[1] == "backup" {
 		flags := flag.NewFlagSet("birdwatch backup", flag.ContinueOnError)
 		source := flags.String("db", config.DatabasePath(), "SQLite database to back up")
@@ -37,6 +48,9 @@ func run() error {
 		return err
 	}
 	defer db.Close()
+	if err := db.Seed(ctx, !cfg.NoDemo); err != nil {
+		return err
+	}
 	if cfg.BackupDir != "" {
 		done := make(chan struct{})
 		go func() {
@@ -45,7 +59,7 @@ func run() error {
 		}()
 		defer func() { stop(); <-done }()
 	}
-	return serve(ctx, cfg, server.New(log.Default(), cfg.Password, db.Health))
+	return serve(ctx, cfg, server.New(log.Default(), cfg.Password, db))
 }
 
 func main() {

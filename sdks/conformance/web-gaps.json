@@ -1,12 +1,1 @@
-{
-  "corrupt-outbox": "The web SDK has no durable outbox to quarantine.",
-  "fast-clock": "The transport omits sent_at.",
-  "partial-batch": "A per-event rejection invalidates the acknowledgement and resends the batch.",
-  "proxy-html": "An HTML 400 retires the event.",
-  "queue-full": "The queue rejects each new arrival and retains its oldest events.",
-  "restart-mid-flush": "A new browser client cannot replay the previous client's unacknowledged events.",
-  "retry-after": "Retry-After longer than 30 seconds ends delivery.",
-  "unavailable": "The third 503 ends delivery and the first two delays use the old backoff.",
-  "unknown-key": "The SDK discards the batch on 401.",
-  "unload-in-flight": "The page waits for its in-flight batch before sending the queued event."
-}
+{}

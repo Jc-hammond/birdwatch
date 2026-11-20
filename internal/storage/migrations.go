@@ -21,7 +21,10 @@ CREATE TABLE events (
 );
 CREATE INDEX events_person ON events(project_id, distinct_id, event, timestamp, id);
 CREATE INDEX events_time ON events(project_id, timestamp, event, distinct_id);
-`}
+`,
+	`CREATE INDEX events_project_sequence ON events(project_id,id);`,
+	dailySchema,
+}
 
 func (s *Store) migrate(ctx context.Context, steps []string, existing bool) error {
 	var version int

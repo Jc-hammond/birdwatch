@@ -38,15 +38,16 @@ test-server: build
 
 test-js: js-sdk
 	npm test --workspace @birdwatch/sdk
-	node --test sdks/conformance/web.test.mjs
+	node --test sdks/conformance/web.test.mjs sdks/conformance/native.test.mjs sdks/conformance/exact.test.mjs
 	node --test sdks/test/*.test.mjs
 	npm run build --workspace birdwatch-ui -- --outDir ../build/ui-check
 
 test-swift:
 	cd sdks/swift && swift build && swift test
+	node --test sdks/conformance/swift.test.mjs
 
 test-android:
-	cd sdks/android && ./gradlew assemble
+	cd sdks/android && ./gradlew assemble testDebugUnitTest
 
 lint: dashboard
 	$(GO) vet ./...

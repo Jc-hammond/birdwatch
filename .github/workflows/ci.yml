@@ -29,10 +29,10 @@ jobs:
           java-version: '17'
       - name: Build from source, lint and test the server
         run: make build lint test-server check-clean
-      - name: Benchmark 100,000 events on the Python reference
+      - name: Enforce the 2M-event report budget on Go
         env:
-          BIRDWATCH_SERVER_CMD: python3 server.py
-        run: go run ./bench --events 100000
+          BIRDWATCH_SERVER_CMD: ./build/birdwatch
+        run: go run ./bench --events 2000000 --budget-ms 300
 
   javascript:
     runs-on: ubuntu-latest
@@ -60,7 +60,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Assemble Android
+      - name: Assemble Android and run JVM conformance
         if: runner.os == 'Linux'
         run: make test-android && make check-clean
 
