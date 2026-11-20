@@ -24,8 +24,8 @@ func TestConcurrentCapture(t *testing.T) {
 				id := strconv.Itoa(i)
 				fields := object{"api_key": p.key, "event": "page_view", "distinct_id": id, "uuid": id}
 				r, err := s.request("POST", "/api/capture", fields, nil)
-				var ack struct{ Accepted int }
-				if err == nil && r.status == 200 && json.Unmarshal(r.body, &ack) == nil && ack.Accepted == 1 {
+				var ack acknowledgement
+				if err == nil && r.status == 200 && json.Unmarshal(r.body, &ack) == nil && ack.counts(1, 0) {
 					acknowledged.Add(1)
 				}
 			}

@@ -81,10 +81,10 @@ func TestIngestionPersistenceAndReports(t *testing.T) {
 	first := event("page_view", "alice")
 	first["properties"] = object{"screen": "welcome"}
 	first["uuid"] = "once"
-	firstAck := decode[struct{ Accepted int }](t, s.capture(t, p, first, 200))
-	check(t, "accepted", firstAck.Accepted, 1)
-	retry := decode[struct{ Duplicates int }](t, s.capture(t, p, first, 200))
-	check(t, "duplicates", retry.Duplicates, 1)
+	expectCounts(t, s.capture(t, p, first, 200), 1, 0)
+	repeat := event("page_view", "alice")
+	repeat["uuid"] = "once"
+	expectCounts(t, s.capture(t, p, repeat, 200), 0, 1)
 	s.capture(t, p, event("sign_up", "alice"), 200)
 	s.capture(t, p, event("$pageview", "bob"), 200)
 
@@ -122,7 +122,7 @@ func TestBatchRollback(t *testing.T) {
 	s.capture(t, p, object{"atomic": true, "batch": []object{event("first", "a"), {"event": ""}}}, 400)
 	check(t, "stored after rollback", s.overview(t, p, 7).Current[0], float64(0))
 	r := s.capture(t, p, object{"batch": []object{event("first", "a"), event("last", "a")}}, 200)
-	check(t, "accepted", decode[struct{ Accepted int }](t, r).Accepted, 2)
+	expectCounts(t, r, 2, 0)
 }
 
 func TestSameTimeOrderAndRepeatedFunnelSteps(t *testing.T) {
@@ -134,9 +134,9 @@ func TestSameTimeOrderAndRepeatedFunnelSteps(t *testing.T) {
 		fields["timestamp"] = ts
 		s.capture(t, p, fields, 200)
 	}
-	for _, second := range []string{"b", "a"} {
-		result := decode[map[string]int](t, s.report(t, p, "funnel?first=a&second="+second))
-		check(t, "funnel for second step "+second, result, map[string]int{"entered": 3, "converted": 1})
+	for _, step := range []struct{ name, second string }{{"distinct steps", "b"}, {"repeated steps", "a"}} {
+		result := decode[map[string]int](t, s.report(t, p, "funnel?first=a&second="+step.second))
+		check(t, step.name, result, map[string]int{"entered": 3, "converted": 1})
 	}
 }
 

@@ -106,7 +106,11 @@ type response struct {
 	body   []byte
 }
 
-var client = &http.Client{Timeout: 20 * time.Second}
+var client = &http.Client{
+	Timeout: 20 * time.Second,
+	// Assert the status returned by Birdwatch itself.
+	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+}
 
 func (s server) request(method, path string, payload any, headers http.Header) (response, error) {
 	var body []byte

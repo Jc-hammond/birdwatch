@@ -9,6 +9,24 @@ import (
 	"time"
 )
 
+type acknowledgement struct {
+	Accepted, Duplicates *int // A missing counter is different from zero.
+	Rejected             []rejection
+}
+
+func (a acknowledgement) counts(accepted, duplicates int) bool {
+	return a.Accepted != nil && *a.Accepted == accepted && a.Duplicates != nil && *a.Duplicates == duplicates
+}
+
+func expectCounts(t *testing.T, r response, accepted, duplicates int) acknowledgement {
+	t.Helper()
+	ack := decode[acknowledgement](t, r)
+	if !ack.counts(accepted, duplicates) {
+		t.Errorf("expected acknowledgement with accepted=%d and duplicates=%d", accepted, duplicates)
+	}
+	return ack
+}
+
 type apiError struct {
 	Code     string
 	Error    string
@@ -80,16 +98,7 @@ func TestBatchResults(t *testing.T) {
 				rejected = failure.Rejected
 			} else {
 				r := s.capture(t, p, body, 200)
-				result := decode[struct {
-					Accepted   int
-					Duplicates *int
-					Rejected   []rejection
-				}](t, r)
-				check(t, "accepted", result.Accepted, 2)
-				if result.Duplicates == nil || *result.Duplicates != 0 {
-					t.Error("want zero duplicates")
-				}
-				rejected = result.Rejected
+				rejected = expectCounts(t, r, 2, 0).Rejected
 				rows := decode[struct{ Rows []struct{ Event string } }](t, s.report(t, p, "events")).Rows
 				var names []string
 				for _, row := range rows {
@@ -128,7 +137,7 @@ func TestCaptureClock(t *testing.T) {
 			}
 			r := s.capture(t, p, batch, 200)
 			after := time.Now().UTC()
-			check(t, "accepted", decode[struct{ Accepted int }](t, r).Accepted, 1)
+			expectCounts(t, r, 1, 0)
 			events := decode[struct {
 				Rows []struct{ Timestamp time.Time }
 			}](t, s.report(t, p, "events"))
@@ -150,7 +159,7 @@ func TestTextPlainCapture(t *testing.T) {
 	body := event("page_view", "a")
 	body["api_key"] = p.key
 	r := s.expect(t, 200, "POST", "/api/capture", body, http.Header{"Content-Type": {"text/plain"}})
-	check(t, "accepted", decode[struct{ Accepted int }](t, r).Accepted, 1)
+	expectCounts(t, r, 1, 0)
 	check(t, "stored", s.overview(t, p, 7).Current[0], float64(1))
 }
 
