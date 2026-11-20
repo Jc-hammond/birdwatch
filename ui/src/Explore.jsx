@@ -21,15 +21,17 @@ export function Explorer({ view, project, days, filters, go, inspect }) {
   const isPeople = view === "People";
   const [q, setQ] = useState(""),
     [search, setSearch] = useState(""),
-    [offset, setOffset] = useState(0);
+    [cursors, setCursors] = useState([]);
+  const offset = cursors.length * 30;
   useEffect(() => {
     const t = setTimeout(() => {
       setSearch(q.trim());
-      setOffset(0);
+      setCursors([]);
     }, 180);
     return () => clearTimeout(t);
   }, [q]);
-  const params = new URLSearchParams({ days, q: search, offset, ...filters });
+  const params = new URLSearchParams({ days, q: search, ...filters });
+  if (cursors.length) params.set("cursor", cursors.at(-1));
   const state = useData(
     "/api/projects/" +
       project.id +
@@ -164,15 +166,15 @@ export function Explorer({ view, project, days, filters, go, inspect }) {
             <button
               className="secondary small"
               disabled={!offset}
-              onClick={() => setOffset(Math.max(0, offset - 30))}
+              onClick={() => setCursors(cursors.slice(0,-1))}
             >
               <ChevronLeft size={14} />
               Previous
             </button>
             <button
               className="secondary small"
-              disabled={!state.data.more}
-              onClick={() => setOffset(offset + 30)}
+              disabled={!state.data.next}
+              onClick={() => setCursors([...cursors,state.data.next])}
             >
               Next
               <ChevronRight size={14} />

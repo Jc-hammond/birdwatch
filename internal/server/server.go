@@ -48,8 +48,10 @@ func New(logger *log.Logger, password string, db *storage.Store) *Server {
 		log:        logger,
 		credential: dashboardCredential(password),
 	}
-	s.routes["/api/projects"] = map[string]endpoint{"POST": s.createProject}
-	s.routes["/api/projects/{project}/setup"] = map[string]endpoint{"GET": s.setup}
+	s.routes["/api/projects"] = map[string]endpoint{"GET": s.projects, "POST": s.createProject}
+	for _, kind := range []string{"overview", "events", "people", "names", "funnel", "setup"} {
+		s.routes["/api/projects/{project}/"+kind] = map[string]endpoint{"GET": s.readReport(kind)}
+	}
 	s.routes["/api/capture"] = map[string]endpoint{"POST": s.capture, "OPTIONS": nil}
 	return s
 }
