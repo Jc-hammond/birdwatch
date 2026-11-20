@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"runtime/debug"
 	"time"
@@ -63,6 +64,11 @@ func handle(w http.ResponseWriter, r *http.Request, methods map[string]endpoint)
 			var tooLarge *http.MaxBytesError
 			if errors.As(err, &tooLarge) {
 				return nil, tooLargeError
+			}
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() {
+				w.Header().Set("Retry-After", "1")
+				return nil, failure{503, "unavailable", "Request body timed out. Retry in one second."}
 			}
 			return nil, failure{400, "invalid_event", "Could not read the request body."}
 		}

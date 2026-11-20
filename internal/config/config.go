@@ -41,7 +41,11 @@ func Parse(args []string) (Config, error) {
 	if err != nil || c.Port < 0 || c.Port > 65535 {
 		return c, fmt.Errorf("port must be an integer between 0 and 65535")
 	}
-	if c.Password == "" && c.Host != "localhost" && !net.ParseIP(c.Host).IsLoopback() {
+	// Bind a concrete loopback address even if the host resolver was customized.
+	if c.Host == "localhost" {
+		c.Host = "127.0.0.1"
+	}
+	if c.Password == "" && !net.ParseIP(c.Host).IsLoopback() {
 		return c, fmt.Errorf("set BIRDWATCH_PASSWORD before binding to a non-loopback address")
 	}
 	return c, nil

@@ -30,9 +30,10 @@ func run() error {
 		return err
 	}
 	srv := &http.Server{
-		Handler:      server.New(log.Default()),
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		DisableGeneralOptionsHandler: true,
+		Handler:                      server.New(log.Default()),
+		ReadTimeout:                  15 * time.Second,
+		WriteTimeout:                 30 * time.Second,
 	}
 	fmt.Printf("Birdwatch listening at http://%s\n", listener.Addr())
 	done := make(chan error, 1)
