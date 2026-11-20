@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"syscall"
 	"text/tabwriter"
 	"time"
 )
@@ -145,12 +146,18 @@ func display(ms *float64) string {
 func run() error {
 	count := flag.Int("events", 100000, "number of events to ingest")
 	asJSON := flag.Bool("json", false, "print results as JSON (null timing means timed out)")
-	budget := flag.Float64("budget-ms", 0, "maximum report median in milliseconds; zero disables the budget")
+	budget := flag.Float64("budget-ms", 0, "maximum report median in milliseconds (omitted by default)")
 	flag.Parse()
+	enforce := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "budget-ms" {
+			enforce = true
+		}
+	})
 	if *count <= 0 || *budget < 0 || math.IsNaN(*budget) || math.IsInf(*budget, 0) || flag.NArg() != 0 {
 		return errors.New("use a positive event count and a non-negative budget")
 	}
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	r, err := benchmark(ctx, *count)
 	if err != nil {
@@ -172,7 +179,7 @@ func run() error {
 		}
 	}
 	for _, t := range r.Reports {
-		if *budget > 0 && (t.Median == nil || *t.Median > *budget) {
+		if enforce && (t.Median == nil || *t.Median > *budget) {
 			return fmt.Errorf("%s median %s exceeds the %.2f ms budget or timed out", t.Name, display(t.Median), *budget)
 		}
 	}

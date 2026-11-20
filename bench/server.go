@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -37,40 +36,33 @@ func launch(ctx context.Context, db string) (*instance, error) {
 	if len(args) == 0 {
 		return nil, errors.New("set BIRDWATCH_SERVER_CMD to the server command")
 	}
-	args = append(args, "--host", "127.0.0.1", "--port", "0", "--db", db, "--no-demo")
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	cmd.Dir = dir
-	cmd.Env = append(cmd.Environ(), "BIRDWATCH_PASSWORD=")
-	out, err := cmd.StdoutPipe()
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		return nil, err
 	}
+	addr := listener.Addr().(*net.TCPAddr)
+	if err := listener.Close(); err != nil {
+		return nil, err
+	}
+	args = append(args, "--host", "127.0.0.1", "--port", fmt.Sprint(addr.Port), "--db", db, "--no-demo")
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	configureProcess(cmd)
+	cmd.Dir = dir
+	cmd.Env = append(cmd.Environ(), "BIRDWATCH_PASSWORD=")
 	if err = cmd.Start(); err != nil {
 		return nil, err
 	}
-	addr := make(chan string, 1)
-	go func() {
-		reader := bufio.NewReader(out)
-		line, _ := reader.ReadString('\n')
-		host, port, err := net.SplitHostPort(strings.TrimPrefix(strings.TrimSpace(line), "Birdwatch listening at http://"))
-		if err != nil || host != "127.0.0.1" || port == "" {
-			addr <- ""
-		} else {
-			addr <- "http://" + net.JoinHostPort(host, port)
+	deadline := time.Now().Add(10 * time.Second)
+	for ctx.Err() == nil && time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp4", addr.String(), 100*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return &instance{cmd, "http://" + addr.String()}, nil
 		}
-		_, _ = io.Copy(io.Discard, reader)
-	}()
-	select {
-	case url := <-addr:
-		if url != "" {
-			return &instance{cmd, url}, nil
-		}
-	case <-time.After(10 * time.Second):
-	case <-ctx.Done():
+		time.Sleep(20 * time.Millisecond)
 	}
-	_ = cmd.Process.Kill()
-	_ = cmd.Wait()
-	return nil, errors.New("server did not announce its loopback address within 10 seconds")
+	_, _ = stop(cmd)
+	return nil, errors.New("server did not accept loopback connections within 10 seconds")
 }
 
 var client = &http.Client{Timeout: 60 * time.Second}
