@@ -6,7 +6,7 @@ Download and unzip the Swift SDK from **Setup**. In Xcode, choose **File → Add
 import Foundation
 import Birdwatch
 
-let analytics = try BirdwatchClient(
+let analytics = try await BirdwatchClient(
     host: URL(string: "https://analytics.example.com")!,
     writeKey: "YOUR_PROJECT_WRITE_KEY"
 )
@@ -24,8 +24,8 @@ Keep a client alive from app startup. `enqueue` returns the event ID after SQLit
 
 On iOS 15+ and macOS 12+, the client automatically drains at startup, when Network.framework reports a usable path, and on a retry timer while the process can execute. A device that reconnects while the app is terminated syncs on its next launch. The collector treats an already accepted ID as a successful duplicate acknowledgement.
 
-The default database lives in Application Support/Birdwatch and is excluded from backup. Queues and identities are scoped to the collector and project write key. Identity changes affect subsequent events. Set `persistence: .memory` to keep both ephemeral, or pass an `outboxURL` to explicitly select a disk database. Each project holds up to `maxQueueSize` pending events (default 1,000). Full queues and write failures throw without evicting older events.
+The default database lives in Application Support/Birdwatch and is excluded from backup. Queues and identities are scoped to the collector and project write key. Identity changes affect subsequent events. Set `persistence: .memory` to keep both ephemeral, or pass an `outboxURL` to explicitly select a disk database. Each project holds up to `maxQueueSize` pending events (default 1,000). When full, the queue drops its oldest events and reports overflow once through `onError`. A corrupt database is moved aside before delivery starts with an empty outbox. Other storage failures are returned to the caller.
 
-Per-request retries reuse the encoded body. Configure `timeout` in seconds and `maxRetries` for transient failures. HTTP 400 and 413 retire a rejected event. Other unsuccessful responses preserve it. An acknowledged event is removed only after the local deletion commits. A device must be able to reach its configured collector URL.
+Each successful receipt identifies its event. Its accepted and duplicate counts describe the entire HTTP batch. The client sends up to 100 events per request and keeps their IDs and occurrence times across retries. It follows the collector’s `Retry-After` and uses exponential backoff with jitter. A partial acknowledgement retires the batch and sends each rejected event to `onError`. An unknown write key pauses delivery and preserves the outbox until restart. Entering the background triggers a flush. Use `try await analytics.close()` to drain pending work and stop the client’s monitor and timers.
 
-Run `swift test` from the package directory. Set `BIRDWATCH_TEST_HOST` and `BIRDWATCH_TEST_KEY` to exercise a live collector as well.
+From the repository root on macOS, run `make test-swift` to build the package, check validation and run every shared SDK delivery scenario against a local collector.
