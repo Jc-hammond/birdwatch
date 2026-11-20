@@ -7,3 +7,5 @@ Run `node --test sdks/conformance/web.test.mjs` from the repository root after b
 - `expect` describes request batches, stored UUIDs and the final outbox. To observe queued events, the collector switches to success and the driver drains once more, restarting first for persisted queues. The probe is excluded from the scenario's request and storage totals. Delay values are milliseconds of SDK time.
 
 The web driver uses the Node entry point for transport scenarios and the browser entry point for storage and page lifecycle scenarios. `web-gaps.json` names observed failures. A listed scenario still executes, and a newly passing scenario must leave the list.
+
+React Native runs the same JSON cases through its packaged CommonJS entry, an AsyncStorage adapter, AppState callbacks and the local collector. Run `node --test sdks/conformance/native.test.mjs` after `make js-sdk`.

@@ -25,6 +25,8 @@ await analytics.reset(); // Queued events retain the identity used at capture.
 
 ## Client setup
 
+React Native 0.65 introduced the removable AppState subscription used here and is the minimum supported by the AsyncStorage 2.2 peer. The SDK bundles its Birdwatch code and uses the host app’s native modules.
+
 Create one client per project at app startup and retain it while collection is enabled. React Native uses AsyncStorage by default. You can supply an adapter with async `getItem` and `setItem`. Pass `storage: null` for an ephemeral client. A secure `randomUUID` option is required on hosts without `crypto.randomUUID`.
 
 ## Save and send events
@@ -33,8 +35,10 @@ Create one client per project at app startup and retain it while collection is e
 
 ## Delivery and retries
 
-The client replays pending events on launch and AppState transitions. While it can execute, a retry timer backs off to one minute. If your app already observes connectivity, pass `subscribeConnectivity: listener => NetInfo.addEventListener(state => listener(state.isInternetReachable === true))` to wake it immediately. Terminating the app preserves its queue. Reopening it resumes delivery.
+The SDK stores one event per AsyncStorage entry. A small header commits queue changes after the event bytes are safe. On first open, an existing queue is converted to individual entries. Damaged data is moved aside and reported through `onError`. Storage adapters can implement `multiGet`, `multiRemove` and `removeItem` for batched native storage operations.
 
-`flush()` attempts delivery of outstanding events. `shutdown()` removes listeners and attempts a final drain. A failed drain preserves pending events. HTTP 400 and 413 for an individual event are terminal input errors. Authentication failures leave queued events available for retry with the same project configuration. Use `onError` to observe failed transport attempts.
+Each request sends up to 100 events within the collector’s byte limit. The client retries transient failures with full jitter and honors Retry-After up to five minutes. Unknown keys pause sends until restart. Each rejected event is reported once. The default capacity is 1,000 events; overflow drops the oldest and reports once until a successful flush frees space.
 
-Each collector and write key has a separate queue. Its default capacity is 1,000 events with a 1 MiB serialized limit. New writes reject on overflow or storage failure. Earlier entries stay in place. `maxQueueSize`, `batchSize`, `flushIntervalMs`, `maxRetries`, and `timeoutMs` tune delivery.
+The client replays on launch, AppState changes and connectivity notifications. Your app can pass `subscribeConnectivity: listener => NetInfo.addEventListener(state => listener(state.isInternetReachable === true))`. Backgrounding also sends events whose foreground acknowledgement is outstanding. Each retry uses the original event ID and timestamp.
+
+`flush()` attempts outstanding delivery. `shutdown()` removes listeners and attempts a final drain. A failed drain leaves events on disk. Set `maxRetries` to control how many transient attempts a caller’s capture receipt waits through. Durable replay continues as long as the client is open.

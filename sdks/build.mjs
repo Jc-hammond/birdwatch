@@ -20,7 +20,8 @@ for (const name of ["exact", "react-native"]) {
       platform: "neutral",
       bundle: true,
       target: "es2020",
-      external: ["@birdwatch/sdk/internal", "react-native", "@react-native-async-storage/async-storage"],
+      external: ["react-native", "@react-native-async-storage/async-storage", ...(name === "exact" ? ["@birdwatch/sdk/internal"] : [])],
+      ...(name === "react-native" && {alias:{"@birdwatch/sdk/internal": fileURLToPath(new URL("../sdk/src/internal.ts", import.meta.url))}}),
       legalComments: "none",
     });
   }
