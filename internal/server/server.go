@@ -19,18 +19,20 @@ const maxBody = 1 << 20
 type endpoint func(*http.Request) (any, error)
 
 type Server struct {
-	routes map[string]map[string]endpoint
-	active chan struct{}
-	log    *log.Logger
+	routes     map[string]map[string]endpoint
+	active     chan struct{}
+	log        *log.Logger
+	credential []byte
 }
 
-func New(logger *log.Logger) *Server {
+func New(logger *log.Logger, password string) *Server {
 	return &Server{
 		routes: map[string]map[string]endpoint{
 			"/healthz": {"GET": func(*http.Request) (any, error) { return map[string]bool{"ok": true}, nil }},
 		},
-		active: make(chan struct{}, 256),
-		log:    logger,
+		active:     make(chan struct{}, 256),
+		log:        logger,
+		credential: dashboardCredential(password),
 	}
 }
 
@@ -102,6 +104,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		s.log.Printf("method=%s route=%s status=%d duration=%s", r.Method, pattern, status, time.Since(start))
 	}()
+	public := publicRoute(r.URL.Path)
+	setSecurityHeaders(w.Header(), r.URL.Path, public)
 	select {
 	case s.active <- struct{}{}:
 		defer func() { <-s.active }()
@@ -109,6 +113,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Retry-After", "1")
 		status = writeJSON(w, 503, failure{503, "unavailable", "Server is busy. Retry in one second."})
 		return
+	}
+	if !public {
+		if denied := s.authorize(w, r); denied != nil {
+			w.Header().Set("Cache-Control", "no-store")
+			status = writeJSON(w, denied.status, denied)
+			return
+		}
 	}
 	var body any
 	fn, err := resolve(w, r, methods)
