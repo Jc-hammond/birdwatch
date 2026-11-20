@@ -16,6 +16,7 @@ import (
 
 	"github.com/Jc-hammond/birdwatch/internal/config"
 	"github.com/Jc-hammond/birdwatch/internal/server"
+	"github.com/Jc-hammond/birdwatch/internal/storage"
 )
 
 func run() error {
@@ -25,13 +26,18 @@ func run() error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	db, err := storage.Open(ctx, cfg.DB)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
 	listener, err := net.Listen("tcp", net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)))
 	if err != nil {
 		return err
 	}
 	srv := &http.Server{
 		DisableGeneralOptionsHandler: true,
-		Handler:                      server.New(log.Default(), cfg.Password),
+		Handler:                      server.New(log.Default(), cfg.Password, db.Health),
 		ReadTimeout:                  15 * time.Second,
 		WriteTimeout:                 30 * time.Second,
 	}
