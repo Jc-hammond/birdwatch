@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -25,10 +26,15 @@ type Server struct {
 	credential []byte
 }
 
-func New(logger *log.Logger, password string) *Server {
+func New(logger *log.Logger, password string, health func(context.Context) error) *Server {
 	return &Server{
 		routes: map[string]map[string]endpoint{
-			"/healthz": {"GET": func(*http.Request) (any, error) { return map[string]bool{"ok": true}, nil }},
+			"/healthz": {"GET": func(r *http.Request) (any, error) {
+				if err := health(r.Context()); err != nil {
+					return nil, failure{503, "unavailable", "Database unavailable. Retry in one second."}
+				}
+				return map[string]bool{"ok": true}, nil
+			}},
 		},
 		active:     make(chan struct{}, 256),
 		log:        logger,
@@ -134,6 +140,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var f failure
 		if !errors.As(err, &f) {
 			f = internalError
+		}
+		if f.status == http.StatusServiceUnavailable {
+			w.Header().Set("Retry-After", "1")
 		}
 		status, body = f.status, f
 	}
