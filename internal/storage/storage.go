@@ -142,6 +142,10 @@ func (s *Store) Write(ctx context.Context, apply func(context.Context, *sql.Tx) 
 		}
 		cancel()
 	}()
+	return s.write(ctx, apply)
+}
+
+func (s *Store) write(ctx context.Context, apply func(context.Context, *sql.Tx) error) error {
 	tx, err := s.writer.BeginTx(ctx, nil)
 	if err != nil {
 		return err
