@@ -19,20 +19,19 @@ import {
 
 export function Explorer({ view, project, days, filters, go, inspect }) {
   const search = filters.q || "";
-  const [draft, setDraft] = useState(search);
-  const timer = useRef();
+  const [query, setQuery] = useState(search);
+  const editing = useRef(false);
   useEffect(() => {
-    setDraft(search);
-    return () => clearTimeout(timer.current);
+    const timer = setTimeout(() => {
+      setQuery(search);
+      editing.current = false;
+    }, 180);
+    return () => clearTimeout(timer);
   }, [search]);
   function change(value) {
-    setDraft(value);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      const { q, ...other } = filters;
-      const next = value.trim();
-      if (next !== search) go(view, next ? { ...other, q: next } : other);
-    }, 180);
+    const { q, ...other } = filters;
+    go(view, value ? { ...other, q: value } : other, editing.current);
+    editing.current = true;
   }
   return (
     <section className="card explorer">
@@ -41,7 +40,7 @@ export function Explorer({ view, project, days, filters, go, inspect }) {
           <Search size={16} />
           <input aria-label={"Search " + view.toLowerCase()}
             placeholder={view === "People" ? "Search by user ID…" : "Search by event name or user ID…"}
-            value={draft} onChange={(e) => change(e.target.value)} />
+            value={search} onBlur={() => { editing.current = false; }} onChange={(e) => change(e.target.value)} />
         </label>
         {(filters.name || filters.person) && (
           <button className="chip" title="Remove filter" onClick={() => go(view, search ? { q: search } : {})}>
@@ -49,7 +48,7 @@ export function Explorer({ view, project, days, filters, go, inspect }) {
           </button>
         )}
       </header>
-      <Results key={search} {...{ view, project, days, filters, go, inspect }} />
+      <Results key={query} {...{ view, project, days, go, inspect }} filters={{ ...filters, q: query }} />
     </section>
   );
 }

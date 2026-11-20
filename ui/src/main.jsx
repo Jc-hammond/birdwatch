@@ -241,18 +241,24 @@ function App() {
   useEffect(() => {
     document.title = view + " · Birdwatch";
   }, [view]);
-  function navigate(id, target, num, fs = {}) {
+  function navigate(id, target, num, fs = {}, replace = false) {
     const qs = new URLSearchParams({ days: num, ...fs });
-    location.hash = "/" + id + "/" + target.toLowerCase() + "?" + qs;
+    const hash = "#/" + id + "/" + target.toLowerCase() + "?" + qs;
+    if (location.hash === hash) return;
+    if (replace) history.replaceState(null, "", hash);
+    else history.pushState(null, "", hash);
+    setLoc(route());
+    setMobile(false);
+    setDetail(null);
   }
-  const go = (v, f = {}) => navigate(project?.id || loc.id, v, days, f);
+  const go = (v, f = {}, replace = false) => navigate(project?.id || loc.id, v, days, f, replace);
   function created(p) {
     setFresh(p);
     setRefresh((v) => v + 1);
     setCreating(false);
     navigate(p.id, "Setup", 7);
   }
-  const key = [project?.id, view, days, filters.person, filters.name].join("|");
+  const key = JSON.stringify([project?.id, view, days, filters.person, filters.name]);
   return (
     <div className="app">
       <a

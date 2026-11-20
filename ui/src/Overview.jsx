@@ -221,7 +221,7 @@ export function Overview({ project, days, go, inspect }) {
   );
   const r = state.data;
   const history = useData(!project.sample_as_of && r?.current[0] === 0
-    ? "/api/projects/" + project.id + "/names" : null, state.data?.as_of);
+    ? "/api/projects/" + project.id + "/names" : null, 0, 5000);
   if (!r || state.error) return <DataState state={state} />;
   if (history.error) return <DataState state={history} />;
   if (r.current[0] === 0 && history.data?.names.length === 0) return <FirstEvent project={project} />;

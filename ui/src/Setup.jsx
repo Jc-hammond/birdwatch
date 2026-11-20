@@ -251,12 +251,16 @@ try await client.enqueue("checkout_completed", properties: ["orderId": "order-12
     setResult(null);
     setSending(true);
     try {
-      await api("/api/capture", {
+      const ack = await api("/api/capture", {
         api_key: p.write_key,
         distinct_id: "setup_test",
         event: "source_connected",
         properties: { source: "setup" },
       });
+      if (ack?.accepted !== 1 || ack.duplicates !== 0 || (ack.rejected !== undefined &&
+          (!Array.isArray(ack.rejected) || ack.rejected.length))) {
+        throw new Error(typeof ack?.error === "string" ? ack.error : "Birdwatch did not acknowledge the test event.");
+      }
       setResult({ ok: true, message: "Birdwatch received your test event." });
     } catch (e) {
       setResult({ ok: false, message: e.message });
