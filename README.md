@@ -92,7 +92,9 @@ docker compose up --build -d
 
 Open [Birdwatch on localhost](http://127.0.0.1:8123) and sign in as `admin` with the password you set. Run `printenv BIRDWATCH_PASSWORD` in the same shell to retrieve it. Keep the variable set for future Compose commands or save it in a local `.env` file.
 
-Compose binds the published port to loopback and stores the database in the `events` volume. Use `docker compose down` to stop the service and keep its data. If you also run the binary directly, give the two instances different ports. Each uses its own database by default.
+Compose binds the published port to loopback and stores the database in the `birdwatch-data` volume. Use `docker compose down` to stop the service and keep its data. If you also run the binary directly, give the two instances different ports. Each uses its own database by default.
+
+Earlier reference-server installations use a different database format. Compose creates the new volume automatically. For a direct binary install, keep the old database and pass a fresh path such as `--db data/birdwatch-go.sqlite3`.
 
 ## Hosting and storage
 

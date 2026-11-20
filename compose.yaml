@@ -7,8 +7,8 @@ services:
     environment:
       BIRDWATCH_PASSWORD: "${BIRDWATCH_PASSWORD:?Set BIRDWATCH_PASSWORD to your dashboard password}"
     volumes:
-      - events:/data
+      - birdwatch-data:/data
     restart: unless-stopped
 
 volumes:
-  events:
+  birdwatch-data:
