@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -14,6 +13,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/Jc-hammond/birdwatch/internal/storage"
 )
 
 type fields = map[string]json.RawMessage
@@ -81,7 +82,7 @@ func stringField(raw json.RawMessage, name string, limit int) (string, error) {
 }
 
 // Fixed-width UTC makes SQLite text order chronological, including fractional seconds.
-const stamp = "2006-01-02T15:04:05.000000Z"
+const stamp = storage.TimestampLayout
 
 func (s *Server) createProject(r *http.Request) (any, error) {
 	body, err := readObject(r)
@@ -92,10 +93,7 @@ func (s *Server) createProject(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	var id int64
-	err = s.db.Write(r.Context(), func(ctx context.Context, tx *sql.Tx) error {
-		return tx.QueryRowContext(ctx, "INSERT INTO projects(name,write_key,created_at) VALUES(?,?,?) RETURNING id", strings.TrimSpace(name), "bw_"+rand.Text(), time.Now().UTC().Format(stamp)).Scan(&id)
-	})
+	id, err := s.db.CreateProject(r.Context(), strings.TrimSpace(name))
 	return httpResult{201, map[string]int64{"id": id}}, err
 }
 

@@ -44,9 +44,7 @@ var pythonGaps = map[string]string{
 }
 
 // Remove each entry as its endpoints land. An unlisted case always runs.
-var goGaps = map[string]string{
-	"TestDemoProjectIsSeparateAndFrozen": "the demo project is not ported",
-}
+var goGaps = map[string]string{}
 
 func start(t *testing.T, db string, demo bool, password string) server {
 	t.Helper()
