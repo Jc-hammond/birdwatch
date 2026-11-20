@@ -1,5 +1,4 @@
-import { BirdwatchError } from "../../sdk/src/types.js";
-import type { BatchCounts } from "../../sdk/src/types.js";
+import { BirdwatchError, type BatchCounts } from "@birdwatch/sdk/internal";
 import type { ExactEvent } from "./index.js";
 
 export const exactOutboxPath = "app:/data/birdwatch.sqlite";

@@ -6,13 +6,14 @@ export {
 } from "./outbox.js";
 import { captureEndpoint } from "../endpoint.js";
 import {
+  BirdwatchError,
   invalid,
   snapshotProperties,
   stringField,
-} from "../../sdk/src/event.js";
-import { utf8Length } from "../../sdk/src/utf8.js";
-import { BirdwatchError } from "../../sdk/src/types.js";
-import type { BatchCounts, Properties } from "../../sdk/src/types.js";
+  utf8Length,
+  type BatchCounts,
+  type Properties,
+} from "@birdwatch/sdk/internal";
 export { BirdwatchError };
 export type { BatchCounts, Properties };
 

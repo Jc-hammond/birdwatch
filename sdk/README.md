@@ -133,6 +133,6 @@ The queue lives in memory. On tab hide or page exit, the SDK attempts a keepaliv
 
 ## Build and test the SDK
 
-Inside `sdk/`, run `npm ci` and `npm test` to build both module formats and run the type and behavior tests. Run `npm run test:integration` to exercise a real Python collector with a temporary database. Set `PYTHON` to select a Python interpreter.
+Run `make test-js` from the repository root to build both module formats and run the type, SDK and adapter tests. After `make build`, run `npm run test:integration --workspace @birdwatch/sdk` to exercise the Python collector with a temporary database. Set `PYTHON` to select a Python interpreter.
 
-Run `npm run sync` after SDK changes to regenerate the hosted script and installable archive. The Python server can serve these immediately. Rebuild the dashboard from `ui/` after editing setup-page code.
+`make build` regenerates the dashboard's hosted script and offline SDK archives.

@@ -21,16 +21,17 @@ const common = {
 await Promise.all([
   build({
     ...common,
-    entryPoints: ["src/index.ts"],
+    entryPoints: ["src/index.ts", "src/internal.ts"],
     format: "esm",
-    outfile: "dist/index.js",
+    outdir: "dist",
     sourcemap: true,
   }),
   build({
     ...common,
-    entryPoints: ["src/index.ts"],
+    entryPoints: ["src/index.ts", "src/internal.ts"],
     format: "cjs",
-    outfile: "dist/index.cjs",
+    outdir: "dist",
+    outExtension: { ".js": ".cjs" },
     sourcemap: true,
   }),
   build({

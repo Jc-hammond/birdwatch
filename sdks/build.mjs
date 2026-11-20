@@ -1,9 +1,8 @@
-// Run npm ci in ../sdk first to install the project's pinned build tools.
 import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { cp, mkdir, writeFile } from "node:fs/promises";
-const require = createRequire(new URL("../sdk/package.json", import.meta.url));
+const require = createRequire(import.meta.url);
 const { build } = require("esbuild");
 process.chdir(fileURLToPath(new URL(".", import.meta.url)));
 for (const name of ["exact", "react-native"]) {

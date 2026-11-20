@@ -20,11 +20,15 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
-      - name: Test Go packages and Python HTTP contracts
-        env:
-          BIRDWATCH_REFERENCE: python
-          BIRDWATCH_SERVER_CMD: python3 server.py
-        run: go test -count=1 ./...
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Build from source, lint and test the server
+        run: make build && make lint && make test-server && make check-clean
 
   javascript:
     runs-on: ubuntu-latest
@@ -33,14 +37,8 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-      - name: Test the SDK
-        working-directory: sdk
-        run: npm ci && npm test
-      - name: Test the adapters
-        run: node sdks/build.mjs && node --test sdks/test/*.test.mjs
-      - name: Build the dashboard
-        working-directory: ui
-        run: npm ci && npm run build
+      - name: Test the JavaScript packages and build the dashboard
+        run: make test-js && make check-clean
 
   native:
     strategy:
@@ -52,8 +50,7 @@ jobs:
       - uses: actions/checkout@v6
       - name: Build and test Swift
         if: runner.os == 'macOS'
-        working-directory: sdks/swift
-        run: swift build && swift test
+        run: make test-swift && make check-clean
       - uses: actions/setup-java@v5
         if: runner.os == 'Linux'
         with:
@@ -61,8 +58,7 @@ jobs:
           java-version: '17'
       - name: Assemble Android
         if: runner.os == 'Linux'
-        working-directory: sdks/android
-        run: ./gradlew assemble
+        run: make test-android && make check-clean
 
   size:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
