@@ -145,6 +145,7 @@ export class WebDriver {
     return this.storage.get(this.corruptKey) !== "{corrupt fixture" &&
       [...this.storage].some(([k,v]) => k !== this.corruptKey && v.includes("{corrupt fixture"));
   }
+
   async step(step) {
     await this.ready;
     if (step.capture) for (const id of step.capture) await this.capture(id);

@@ -35,7 +35,7 @@ Create one client per project at app startup and retain it while collection is e
 
 ## Delivery and retries
 
-The SDK stores one event per AsyncStorage entry. A small header commits queue changes after the event bytes are safe. On first open, an existing queue is converted to individual entries. Damaged data is moved aside and reported through `onError`. Storage adapters can implement `multiGet`, `multiRemove` and `removeItem` for batched native storage operations.
+The SDK stores one event per AsyncStorage entry. A small header commits queue changes after the event bytes are safe. Unreadable queues, including an older array-format snapshot, are preserved separately and reported through `onError`. The client starts a fresh queue. Storage adapters can implement `multiGet`, `multiRemove` and `removeItem` for batched native storage operations.
 
 Each request sends up to 100 events within the collector’s byte limit. The client retries transient failures with full jitter and honors Retry-After up to five minutes. Unknown keys pause sends until restart. Each rejected event is reported once. The default capacity is 1,000 events; overflow drops the oldest and reports once until a successful flush frees space.
 

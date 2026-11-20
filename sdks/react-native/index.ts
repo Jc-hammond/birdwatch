@@ -166,6 +166,7 @@ export async function createReactNativeClient<
       if (entry) {
         entry.calls = entry.calls.filter((call) => {
           if (++call.failures <= retries) return true;
+          report(failure);
           call.reject(failure);
           return false;
         });

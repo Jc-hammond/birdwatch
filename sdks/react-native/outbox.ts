@@ -125,25 +125,6 @@ export class Outbox {
     } catch {
       /* preserve the damaged bytes below */
     }
-    if (Array.isArray(value)) {
-      // Publish the new header only after every event in the previous snapshot has a slot.
-      const epoch = this.id();
-      const entries: EncodedEvent[] = [];
-      try {
-        for (const item of value)
-          entries.push(checkedEvent(JSON.stringify(item)));
-      } catch {
-        await this.recoverHeader(raw);
-        return;
-      }
-      for (const [sequence, event] of entries.entries()) {
-        await this.storage.setItem(this.slot(sequence, epoch), event.json);
-        this.rows.set(event.id, { ...event, sequence, epoch });
-      }
-      // Older versions stored at most one MiB per queue, below the physical slot count.
-      await this.publish({ epoch, first: 0, next: entries.length });
-      return;
-    }
     if (
       !value ||
       typeof value.epoch !== "string" ||

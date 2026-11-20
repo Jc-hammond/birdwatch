@@ -215,7 +215,7 @@ const client = createExactClient({ ${clientConfig}, fetch });`,
       example: `import Foundation
 import Birdwatch
 
-let client = try BirdwatchClient(
+let client = try await BirdwatchClient(
     host: URL(string: ${JSON.stringify(origin)})!,
     writeKey: ${JSON.stringify(p.write_key)}
 )

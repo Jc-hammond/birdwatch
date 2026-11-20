@@ -44,6 +44,7 @@ test-js: js-sdk
 
 test-swift:
 	cd sdks/swift && swift build && swift test
+	node --test sdks/conformance/swift.test.mjs
 
 test-android:
 	cd sdks/android && ./gradlew assemble
