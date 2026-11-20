@@ -1,0 +1,9 @@
+{
+  "name": "birdwatch-workspace",
+  "private": true,
+  "workspaces": ["sdk", "sdks/exact", "sdks/react-native", "ui"],
+  "devDependencies": {
+    "esbuild": "0.28.1",
+    "typescript": "5.9.3"
+  }
+}

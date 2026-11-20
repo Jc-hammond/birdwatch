@@ -10,7 +10,7 @@ Open your project in Birdwatch and select **Setup** → **Browser SDK** or **Nod
 npm install ./birdwatch-sdk-0.1.0.tgz
 ```
 
-Each example in **Setup** includes your server URL and project write key. The key lets clients send events. The same archive is also available in the source release at `ui/public/assets/birdwatch-sdk-0.1.0.tgz`.
+Each example in **Setup** includes your server URL and project write key. The key lets clients send events. Running `make build` from the repository root generates the same archive at `ui/public/assets/birdwatch-sdk-0.1.0.tgz`.
 
 ## Browser
 
@@ -133,6 +133,6 @@ The queue lives in memory. On tab hide or page exit, the SDK attempts a keepaliv
 
 ## Build and test the SDK
 
-Inside `sdk/`, run `npm ci` and `npm test` to build both module formats and run the type and behavior tests. Run `npm run test:integration` to exercise a real Python collector with a temporary database. Set `PYTHON` to select a Python interpreter.
+Run `make test-js` from the repository root to build both module formats and run the type, SDK and adapter tests. After `make build`, run `npm run test:integration --workspace @birdwatch/sdk` to exercise the Python collector with a temporary database. Set `PYTHON` to select a Python interpreter.
 
-Run `npm run sync` after SDK changes to regenerate the hosted script and installable archive. The Python server can serve these immediately. Rebuild the dashboard from `ui/` after editing setup-page code.
+`make build` regenerates the dashboard's hosted script and offline SDK archives.

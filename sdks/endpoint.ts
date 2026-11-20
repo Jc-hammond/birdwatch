@@ -1,4 +1,4 @@
-import { invalid } from "../sdk/src/event.js";
+import { invalid } from "@birdwatch/sdk/internal";
 
 // Exact and React Native both run on hosts with partial WHATWG URL support.
 export function captureEndpoint(host: string): string {
