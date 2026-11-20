@@ -233,6 +233,6 @@ func storeEvent(ctx context.Context, tx *sql.Tx, project int64, item fields, rec
 			ts = received
 		}
 	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO events(project_id,event,distinct_id,timestamp,properties,uuid) VALUES(?,?,?,?,?,?)", project, name, person, ts.Format(stamp), props, uuid)
+	_, err = tx.ExecContext(ctx, "INSERT INTO events(id,project_id,event,distinct_id,timestamp,properties,uuid) VALUES((SELECT max(coalesce((SELECT max(id) FROM events),0),(SELECT max(deleted_max_id) FROM projects))+1),?,?,?,?,?,?)", project, name, person, ts.Format(stamp), props, uuid)
 	return false, err
 }

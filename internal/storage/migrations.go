@@ -24,6 +24,7 @@ CREATE INDEX events_time ON events(project_id, timestamp, event, distinct_id);
 `,
 	`CREATE INDEX events_project_sequence ON events(project_id,id);`,
 	dailySchema,
+	retentionSchema,
 }
 
 func (s *Store) migrate(ctx context.Context, steps []string, existing bool) error {

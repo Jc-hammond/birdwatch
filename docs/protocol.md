@@ -190,3 +190,20 @@ Access-Control-Max-Age: 86400
 ```
 
 Capture never reads or sets cookies and never allows credentials.
+
+## Project retention and erasure
+
+The owner can set a project's raw event lifetime with `PATCH /api/projects/{id}`.
+Send `{"retention_days":30}` for a whole number of days, or
+`{"retention_days":null}` to keep raw events indefinitely (the default). A
+successful response echoes the setting. Setup and project listings also return it.
+At startup and once an hour, the server removes expired raw events in transactions
+of at most 10,000. It keeps daily counts, including each person's contribution
+by event name, so totals survive a sweep and can still be corrected on erasure.
+
+`DELETE /api/projects/{id}/people/{distinct_id}` erases the person's raw events
+and daily contributions within that project. Encode the ID as one URL path
+segment. The response `{"removed":2}` counts events removed from the project's
+totals, including previously expired contributions. Repeating the request returns
+zero. Both operations use dashboard owner access and reject changes to the sample
+project with HTTP 403.

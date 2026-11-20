@@ -55,7 +55,7 @@ func records(db storage.Reader, query string, args ...any) ([]record, error) {
 func (s *Server) projects(r *http.Request) (any, error) {
 	var rows []record
 	err := s.db.Read(r.Context(), func(db storage.Reader) (err error) {
-		rows, err = records(db, "SELECT id,name,sample_as_of FROM projects ORDER BY id")
+		rows, err = records(db, "SELECT id,name,sample_as_of,retention_days FROM projects ORDER BY id")
 		return
 	})
 	return record{"projects": rows}, err
@@ -121,7 +121,7 @@ func (s *Server) readReport(kind string) endpoint {
 		}
 		var result any
 		err = s.db.Read(r.Context(), func(db storage.Reader) error {
-			projects, err := records(db, "SELECT id,name,created_at,write_key,sample_as_of FROM projects WHERE id=?", id)
+			projects, err := records(db, "SELECT id,name,created_at,write_key,sample_as_of,retention_days FROM projects WHERE id=?", id)
 			if err != nil {
 				return err
 			}
@@ -139,7 +139,7 @@ func (s *Server) readReport(kind string) endpoint {
 					cursor.AsOf = frozen
 				}
 				if kind == "people" || kind == "events" {
-					err = db.QueryRow("SELECT COALESCE((SELECT id FROM events WHERE project_id=? ORDER BY id DESC LIMIT 1),0)", id).Scan(&cursor.MaxID)
+					err = db.QueryRow("SELECT max(deleted_max_id,COALESCE((SELECT id FROM events WHERE project_id=?1 ORDER BY id DESC LIMIT 1),0)) FROM projects WHERE id=?1", id).Scan(&cursor.MaxID)
 					if err != nil {
 						return err
 					}

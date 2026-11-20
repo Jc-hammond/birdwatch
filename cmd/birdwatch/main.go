@@ -56,6 +56,9 @@ func run() error {
 	if err := db.Seed(ctx, !cfg.NoDemo); err != nil {
 		return err
 	}
+	retentionDone := make(chan struct{})
+	go func() { defer close(retentionDone); db.RunRetention(ctx, log.Default()) }()
+	defer func() { stop(); <-retentionDone }()
 	if cfg.BackupDir != "" {
 		done := make(chan struct{})
 		go func() {
