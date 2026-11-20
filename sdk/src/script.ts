@@ -23,7 +23,8 @@ if (script?.dataset.key) {
     batchSize: 1,
   });
   const globals = window as Window & { birdwatch?: ScriptClient };
-  if (globals.birdwatch?.shutdown) void globals.birdwatch.shutdown().catch(() => {});
+  if (globals.birdwatch?.shutdown)
+    void globals.birdwatch.shutdown().catch(() => {});
   const api: ScriptClient = {
     get distinctId() {
       return client.distinctId;
@@ -39,4 +40,6 @@ if (script?.dataset.key) {
   };
   globals.birdwatch = api;
   if (script.dataset.pageview === "true") void client.page().catch(() => {});
+} else if (script) {
+  console.warn("Birdwatch requires a data-key on its script tag.");
 }

@@ -27,6 +27,7 @@ export type {
 } from "@birdwatch/sdk/internal";
 
 export interface NativeOptions extends ClientOptions {
+  maxRetries?: number;
   /** Defaults to AsyncStorage. Pass null for memory-only collection. */
   storage?: IdentityStorage | null;
   /** Optionally notify the SDK immediately when network connectivity returns. */
@@ -50,9 +51,12 @@ export interface NativeClient<C extends CatalogShape<C>> extends Lifecycle {
   screen(name: string, options?: CaptureOptions): Promise<Receipt>;
 }
 export async function createReactNativeClient<
-  C extends CatalogShape<C> = EventCatalog
+  C extends CatalogShape<C> = EventCatalog,
 >(options: NativeOptions): Promise<NativeClient<C>> {
-  const queue = new DeliveryQueue(options, captureEndpoint);
+  const retries = options.maxRetries ?? 2;
+  if (!Number.isInteger(retries) || retries < 0 || retries > 5)
+    invalid("maxRetries must be an integer from 0 to 5.");
+  const queue = new DeliveryQueue(options, captureEndpoint, false, retries);
   const storage =
     options.storage === undefined ? AsyncStorage : options.storage;
   const scope = JSON.stringify([
