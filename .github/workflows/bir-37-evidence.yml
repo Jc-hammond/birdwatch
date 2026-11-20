@@ -1,0 +1,64 @@
+name: BIR-37 screenshot evidence
+on:
+  push:
+    branches: [codex/bir-37-theme]
+permissions:
+  contents: read
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Build the dashboard and start an isolated demo
+        run: |
+          npm ci
+          npm run build --workspace birdwatch-ui
+          python3 server.py --host 127.0.0.1 --port 8123 --db "$RUNNER_TEMP/demo.sqlite3" > "$RUNNER_TEMP/demo.log" 2>&1 &
+          for attempt in {1..30}; do
+            if curl --silent --fail http://127.0.0.1:8123/api/projects > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: Capture five views in both themes
+        run: |
+          cd "$RUNNER_TEMP"
+          npm install --no-save --no-audit --no-fund playwright-core@1.56.1
+          mkdir theme-screenshots
+          node --input-type=module <<'JS'
+          import { chromium } from 'playwright-core';
+          import { execFileSync } from 'node:child_process';
+          const origin = 'http://127.0.0.1:8123';
+          const browser = await chromium.launch({executablePath: execFileSync('which', ['google-chrome'], {encoding:'utf8'}).trim()});
+          try {
+            const page = await browser.newPage({viewport:{width:1440,height:1000}, reducedMotion:'reduce'});
+            const {projects} = await (await page.request.get(origin + '/api/projects')).json();
+            const demo = projects.find(p => p.sample_as_of).id;
+            const {id: fresh} = await (await page.request.post(origin + '/api/projects', {data:{name:'Theme preview'}})).json();
+            await page.route('**/api/projects/*/setup', async route => {
+              const response = await route.fetch();
+              const project = await response.json();
+              await route.fulfill({response,json:{...project,write_key:'example-write-key'}});
+            });
+            await page.goto(origin);
+            for (const theme of ['light','dark']) {
+              await page.getByRole('combobox',{name:'Theme',exact:true}).selectOption(theme);
+              for (const [view,ready] of Object.entries({overview:'.metrics',events:'tbody tr',people:'tbody tr',funnels:'.funnel-bars',setup:'.snippet'})) {
+                await page.goto(origin + '/#/' + (view === 'setup' ? fresh : demo) + '/' + view + '?days=7');
+                await page.locator(ready).first().waitFor();
+                await page.screenshot({path:'theme-screenshots/' + view + '-' + theme + '.png',fullPage:true});
+              }
+            }
+          } finally { await browser.close(); }
+          JS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: birdwatch-dashboard-themes
+          path: ${{ runner.temp }}/theme-screenshots/*.png
+          if-no-files-found: error
+          retention-days: 90
