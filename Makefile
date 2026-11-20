@@ -48,6 +48,7 @@ test-android:
 	cd sdks/android && ./gradlew assemble
 
 lint: dashboard
+	@false # Temporary BIR-10 check on the verification branch only.
 	$(GO) vet ./...
 	npm exec -- tsc --project sdk/test/tsconfig.json
 	git diff --check
