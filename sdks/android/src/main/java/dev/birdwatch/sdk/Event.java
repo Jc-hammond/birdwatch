@@ -46,11 +46,8 @@ public final class Event {
       snapshot =
           json(properties == null ? Collections.emptyMap() : properties, new IdentityHashMap<>())
               .toString();
-      int length = 0;
-      for (int i = 0; i < snapshot.length(); i++) {
-        length += snapshot.charAt(i) >= 127 ? 6 : 1;
-        if (length > 32768) throw new IllegalArgumentException("Event properties exceed 32 KiB");
-      }
+      if (snapshot.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 32768)
+        throw new IllegalArgumentException("Event properties exceed 32 KiB");
     } catch (JSONException e) {
       failure = new IllegalArgumentException("Invalid event properties", e);
     } catch (RuntimeException e) {

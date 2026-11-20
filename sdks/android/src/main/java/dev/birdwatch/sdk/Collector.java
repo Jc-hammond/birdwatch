@@ -50,6 +50,20 @@ final class Collector {
 
   static final class Result {
     final int accepted, duplicates;
+    Exception error;
+    boolean pause, terminal = true;
+    long retryAfter = -1;
+
+    static Result failed(Exception error) {
+      Result result = new Result(0, 0);
+      result.error = error;
+      Failure http = error instanceof Failure ? (Failure) error : null;
+      result.terminal = http != null && http.terminal;
+      result.pause = http != null && http.pause;
+      result.retryAfter = http == null ? -1 : http.retryAfter;
+      return result;
+    }
+
     final Map<Integer, Exception> rejected = new HashMap<>();
 
     Result(int accepted, int duplicates) {
@@ -93,7 +107,15 @@ final class Collector {
     return batch;
   }
 
-  Result send(List<Outbox.Row> rows, long now) throws Exception {
+  Result attempt(List<Outbox.Row> rows, long now) {
+    try {
+      return send(rows, now);
+    } catch (Exception error) {
+      return Result.failed(error);
+    }
+  }
+
+  private Result send(List<Outbox.Row> rows, long now) throws Exception {
     SimpleDateFormat utc = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
     utc.setTimeZone(TimeZone.getTimeZone("UTC"));
     StringBuilder body =
@@ -112,8 +134,15 @@ final class Collector {
     Response response = transport.post(endpoint, bytes, timeout);
     JSONObject ack;
     try {
+      // Android JSONObject accepts trailing garbage. Only a complete JSON document can retire data.
+      try (android.util.JsonReader reader =
+          new android.util.JsonReader(new java.io.StringReader(response.body))) {
+        reader.skipValue();
+        if (reader.peek() != android.util.JsonToken.END_DOCUMENT)
+          throw new IOException("Invalid Birdwatch acknowledgement");
+      }
       ack = new JSONObject(response.body);
-    } catch (org.json.JSONException ignored) {
+    } catch (org.json.JSONException | IOException ignored) {
       ack = new JSONObject();
     }
     if (response.status != 200 || !ack.has("accepted")) {

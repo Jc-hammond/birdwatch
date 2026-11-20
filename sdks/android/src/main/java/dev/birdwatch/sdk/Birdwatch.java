@@ -142,7 +142,8 @@ public final class Birdwatch implements Closeable {
   private ConnectivityManager.NetworkCallback listener;
   private Runnable cancel;
   private boolean accepting = true, paused, stopped;
-  private int generation, active;
+  private final List<Attempt> active = new ArrayList<>(2);
+  private final List<Outbox.Row> retry = new ArrayList<>();
   final CompletableFuture<Void> closed = new CompletableFuture<>();
   private long retryAt, backoff = 1000;
 
@@ -165,7 +166,8 @@ public final class Birdwatch implements Closeable {
             scope,
             builder.maxQueueSize,
             this::report,
-            seq -> settle(seq, null, new IllegalStateException("Outbox full; event was dropped")));
+            this::corrupt,
+            this::evicted);
     unregisterBackground = Background.observe(builder.context, () -> post(() -> send(true)));
     state.setRemoveOnCancelPolicy(true);
     state.execute(
@@ -243,14 +245,17 @@ public final class Birdwatch implements Closeable {
 
   @NonNull
   public CompletableFuture<Receipt> screen(@NonNull String name) {
+    long when = settings.wall.getAsLong();
+    String id = UUID.randomUUID().toString();
     return submit(
-        result -> {
-          Event event =
-              new Event(
-                  "screen_view",
-                  Collections.singletonMap("screen", Event.field(name, "screen", 256)));
-          capture(event, result);
-        });
+        result ->
+            capture(
+                new Event(
+                    "screen_view",
+                    Collections.singletonMap("screen", Event.field(name, "screen", 256)),
+                    id,
+                    when),
+                result));
   }
 
   @NonNull
@@ -299,7 +304,7 @@ public final class Birdwatch implements Closeable {
   }
 
   CompletableFuture<Integer> activeAttempts() {
-    return local(() -> active);
+    return local(active::size);
   }
 
   private <T> CompletableFuture<T> local(Callable<T> task) {
@@ -357,35 +362,60 @@ public final class Birdwatch implements Closeable {
     cancel = null;
   }
 
-  // Storage state stays on one executor. Backgrounding can supersede a held request once.
+  private static final class Attempt {
+    final List<Outbox.Row> rows;
+    final java.util.Set<Long> pending = new java.util.HashSet<>();
+
+    Attempt(List<Outbox.Row> rows) {
+      this.rows = rows;
+      for (Outbox.Row row : rows) pending.add(row.sequence);
+    }
+  }
+
+  private void corrupt(Throwable error) {
+    active.clear();
+    retry.clear();
+    while (!waiting.isEmpty()) settle(waiting.firstKey(), null, error);
+    settleBarriers(Long.MAX_VALUE, error);
+    report(error);
+  }
+
+  private void evicted(long through) {
+    IllegalStateException error = new IllegalStateException("Outbox full; event was dropped");
+    while (!waiting.isEmpty() && waiting.firstKey() <= through)
+      settle(waiting.firstKey(), null, error);
+    retry.removeIf(row -> row.sequence <= through);
+    for (Attempt a : active) a.pending.removeIf(seq -> seq <= through);
+  }
+
+  private List<Outbox.Row> nextBatch() {
+    if (!retry.isEmpty()) return new ArrayList<>(retry);
+    List<Outbox.Row> rows = outbox.batch();
+    Map.Entry<Long, Pending> oldest = waiting.firstEntry();
+    // Replay a missing waiting row so a second client cannot strand its receipt.
+    if (oldest != null && (rows.isEmpty() || oldest.getKey() < rows.get(0).sequence))
+      return Collections.singletonList(oldest.getValue().row);
+    return collector.fit(rows);
+  }
+
   private void send(boolean background) {
     cancelTimer();
-    if (paused || stopped || (active != 0 && (!background || active >= 2))) return;
+    if (paused || stopped || active.size() >= (background ? 2 : 1)) return;
     long delay = retryAt - settings.elapsed.getAsLong();
     if (delay > 0) {
       schedule(delay);
       return;
     }
     try {
-      TreeMap<Long, Outbox.Row> next = new TreeMap<>();
-      for (Outbox.Row row : outbox.batch()) next.put(row.sequence, row);
-      for (Pending p : waiting.values()) {
-        if (next.size() >= 100 && p.row.sequence > next.lastKey()) break;
-        next.putIfAbsent(p.row.sequence, p.row);
-      }
-      settleBarriers(next.isEmpty() ? Long.MAX_VALUE : next.firstKey(), null);
-      if (next.isEmpty()) return;
-      List<Outbox.Row> batch = collector.fit(new ArrayList<>(next.values()));
-      int attempt = ++generation;
-      active++;
+      List<Outbox.Row> batch = nextBatch();
+      settleBarriers(batch.isEmpty() ? Long.MAX_VALUE : batch.get(0).sequence, null);
+      if (batch.isEmpty()) return;
+      Attempt attempt = new Attempt(batch);
+      active.add(attempt);
       io.execute(
           () -> {
-            try {
-              Collector.Result ack = collector.send(batch, settings.wall.getAsLong());
-              post(() -> finish(attempt, batch, ack, null));
-            } catch (Exception e) {
-              post(() -> finish(attempt, batch, null, e));
-            }
+            Collector.Result ack = collector.attempt(batch, settings.wall.getAsLong());
+            post(() -> finish(attempt, ack));
           });
     } catch (RuntimeException e) {
       report(e);
@@ -394,52 +424,50 @@ public final class Birdwatch implements Closeable {
     }
   }
 
-  private void finish(
-      int attempt, List<Outbox.Row> batch, Collector.Result ack, Exception failure) {
-    active--;
-    if (attempt != generation) {
+  private void finish(Attempt attempt, Collector.Result ack) {
+    if (!active.remove(attempt) || attempt.pending.isEmpty()) {
       send(false);
       return;
     }
-    Collector.Failure http =
-        failure instanceof Collector.Failure ? (Collector.Failure) failure : null;
-    if (failure == null || (http != null && http.terminal)) {
+    if (ack.terminal) {
       try {
-        outbox.acknowledge(batch);
+        outbox.acknowledge(attempt.rows);
       } catch (RuntimeException e) {
-        failure = e;
-        ack = null;
-        http = null;
         report(e);
+        ack = Collector.Result.failed(e);
       }
     }
-    for (int i = 0; i < batch.size(); i++) {
-      Outbox.Row row = batch.get(i);
-      Exception error = ack == null ? failure : ack.rejected.get(i);
-      if (ack != null && error != null) report(error);
+    for (int i = 0; i < attempt.rows.size(); i++) {
+      Outbox.Row row = attempt.rows.get(i);
+      if (!attempt.pending.contains(row.sequence)) continue;
+      Exception error = ack.error == null ? ack.rejected.get(i) : ack.error;
+      if (ack.terminal) {
+        retry.removeIf(r -> r.sequence == row.sequence);
+        for (Attempt other : active) other.pending.remove(row.sequence);
+        if (ack.error == null && error != null) report(error);
+      } else if (active.stream().anyMatch(other -> other.pending.contains(row.sequence))) {
+        continue;
+      } else if (retry.stream().noneMatch(r -> r.sequence == row.sequence)) retry.add(row);
       settle(
           row.sequence,
           error == null ? new Receipt(row.id, ack.accepted, ack.duplicates) : null,
           error);
     }
-    if (http != null && (http.pause || http.terminal)) report(http);
-    if (failure != null) settleBarriers(Long.MAX_VALUE, failure);
-    paused = http != null && http.pause;
+    if (ack.error != null) settleBarriers(Long.MAX_VALUE, ack.error);
+    if (ack.error != null && (ack.terminal || (ack.pause && !paused))) report(ack.error);
+    paused |= ack.pause;
     if (paused) return;
-    if (failure != null && (http == null || !http.terminal)) {
-      long delay =
-          http != null && http.retryAfter >= 0
-              ? http.retryAfter
-              : (long) (settings.jitter.getAsDouble() * backoff);
-      backoff = Math.min(60000, backoff * 2);
-      retryAt = settings.elapsed.getAsLong() + delay;
-      cancelTimer();
-      schedule(delay);
-    } else {
-      retryAt = 0;
+    if (ack.terminal && retry.isEmpty()) {
       backoff = 1000;
-      send(false);
+      retryAt = 0;
     }
+    if (!ack.terminal && !retry.isEmpty()) {
+      long delay =
+          ack.retryAfter >= 0 ? ack.retryAfter : (long) (settings.jitter.getAsDouble() * backoff);
+      retryAt = settings.elapsed.getAsLong() + delay;
+      backoff = Math.min(60000, backoff * 2);
+    }
+    send(false);
   }
 
   private void settle(long sequence, Receipt receipt, Throwable error) {

@@ -116,6 +116,11 @@ export class WebDriver {
     throw new Error("SDK continuously scheduled immediate retries");
   }
 
+  quarantined() {
+    return this.storage.get(this.corruptKey) !== "{corrupt fixture" &&
+      [...this.storage].some(([k,v]) => k !== this.corruptKey && v.includes("{corrupt fixture"));
+  }
+
   async step(step) {
     if (step.capture) for (const id of step.capture) this.capture(id);
     else if (step.advanceMs !== undefined) await this.advance(step.advanceMs);

@@ -47,13 +47,14 @@ final class Outbox extends SQLiteOpenHelper {
       String scope,
       int capacity,
       Consumer<Throwable> onError,
+      Consumer<Throwable> onCorrupt,
       Consumer<Long> onEvicted) {
     super(
         context,
         new File(context.getNoBackupFilesDir(), "birdwatch-v1.sqlite3").getAbsolutePath(),
         null,
         1,
-        db -> quarantine(db, onError));
+        db -> quarantine(db, onCorrupt));
     this.scope = scope;
     this.capacity = capacity;
     this.onError = onError;
@@ -128,13 +129,15 @@ final class Outbox extends SQLiteOpenHelper {
         db.setTransactionSuccessful();
         return existing;
       }
-      if (DatabaseUtils.longForQuery(
-              db, "SELECT COUNT(*) FROM events WHERE scope=?", new String[] {scope})
-          >= capacity) {
-        evicted =
-            DatabaseUtils.longForQuery(
-                db, "SELECT min(seq) FROM events WHERE scope=?", new String[] {scope});
-        db.delete("events", "seq=? AND scope=?", new String[] {Long.toString(evicted), scope});
+      // A lower capacity on reopen may expire more than one row.
+      try (Cursor cutoff =
+          db.rawQuery(
+              "SELECT seq FROM events WHERE scope=? ORDER BY seq DESC LIMIT 1 OFFSET ?",
+              new String[] {scope, Integer.toString(capacity - 1)})) {
+        if (cutoff.moveToFirst()) {
+          evicted = cutoff.getLong(0);
+          db.delete("events", "scope=? AND seq<=?", new String[] {scope, Long.toString(evicted)});
+        }
       }
       // Retain the original properties JSON, including the precision of integer literals.
       String base =
