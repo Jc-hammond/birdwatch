@@ -50,16 +50,16 @@ func TestReadCancelsQueryAtDeadline(t *testing.T) {
 	defer s.Close()
 	const query = "WITH RECURSIVE numbers(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM numbers WHERE n<100000000) SELECT sum(n) FROM numbers"
 	start := time.Now()
-	err = s.Read(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+	err = s.Read(context.Background(), func(r Reader) error {
 		var total int64
-		return tx.QueryRowContext(ctx, query).Scan(&total)
+		return r.QueryRow(query).Scan(&total)
 	})
 	if !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 10*time.Second {
 		t.Fatalf("read ended after %s with %v", time.Since(start), err)
 	}
-	if err := s.Read(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+	if err := s.Read(context.Background(), func(r Reader) error {
 		var one int
-		return tx.QueryRowContext(ctx, "SELECT 1").Scan(&one)
+		return r.QueryRow("SELECT 1").Scan(&one)
 	}); err != nil {
 		t.Fatalf("reader unavailable after cancellation: %v", err)
 	}

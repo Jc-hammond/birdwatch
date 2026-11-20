@@ -82,8 +82,22 @@ func Open(ctx context.Context, path string) (*Store, error) {
 
 func (s *Store) Close() error { return errors.Join(s.readers.Close(), s.writer.Close()) }
 
+// Reader binds every statement in a snapshot to the same deadline.
+type Reader struct {
+	ctx context.Context
+	tx  *sql.Tx
+}
+
+func (r Reader) QueryRow(query string, args ...any) *sql.Row {
+	return r.tx.QueryRowContext(r.ctx, query, args...)
+}
+
+func (r Reader) Query(query string, args ...any) (*sql.Rows, error) {
+	return r.tx.QueryContext(r.ctx, query, args...)
+}
+
 // Read runs the report against one snapshot, with a deadline shared by all its queries.
-func (s *Store) Read(ctx context.Context, query func(context.Context, *sql.Tx) error) error {
+func (s *Store) Read(ctx context.Context, query func(Reader) error) error {
 	ctx, cancel := context.WithTimeout(ctx, readTimeout)
 	defer cancel()
 	tx, err := s.readers.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
@@ -91,7 +105,7 @@ func (s *Store) Read(ctx context.Context, query func(context.Context, *sql.Tx) e
 		return err
 	}
 	defer tx.Rollback()
-	err = query(ctx, tx)
+	err = query(Reader{ctx: ctx, tx: tx})
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
