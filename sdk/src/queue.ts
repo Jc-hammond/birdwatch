@@ -1,6 +1,6 @@
 import { utf8Length } from "./utf8.js";
 import { encodeEvent, type EncodedEvent } from "./event.js";
-import { configure, DeliveryFailure, payload, send } from "./transport.js";
+import { configure, DeliveryFailure, payload, retryDelay, send } from "./transport.js";
 import { browserOutbox } from "./outbox.js";
 import { BirdwatchError } from "./types.js";
 import type { CaptureOptions, BrowserOptions, Receipt } from "./types.js";
@@ -23,20 +23,18 @@ export class DeliveryQueue {
   private readonly unloading = new Set<Pending>();
   private retryAt = 0;
   private overflow = false;
-  private ceiling = 1000;
+  private failures = 0;
   private closing?: Promise<void>;
 
   constructor(
     options: BrowserOptions,
-    endpointFor?: (host: string) => string,
-    private readonly browser = false,
-    private readonly retryLimit = Infinity
+    private readonly browser = false
   ) {
-    this.config = configure(options, endpointFor);
+    this.config = configure(options);
     this.overhead = utf8Length(payload(this.config.key, []));
     if (browser && options.persist) {
       this.outbox = browserOutbox(this.config.endpoint, this.config.key, () =>
-        this.report(
+        this.config.report(
           new BirdwatchError(
             "storage",
             "Browser queue storage is unavailable or corrupt."
@@ -47,14 +45,6 @@ export class DeliveryQueue {
     }
   }
 
-  private report(error: BirdwatchError) {
-    try {
-      void Promise.resolve(this.config.onError?.(error)).catch(() => {});
-    } catch {
-      /* Ignore observer errors. */
-    }
-  }
-
   capture(
     name: unknown,
     person: unknown,
@@ -62,25 +52,16 @@ export class DeliveryQueue {
     options?: CaptureOptions
   ): Promise<Receipt> {
     try {
-      return this.captureEncoded(
-        encodeEvent(name, person, props, options ?? {})
-      );
+      const event = encodeEvent(name, person, props, options ?? {});
+      if (this.closing)
+        throw new BirdwatchError("closed", "The client has been shut down.");
+      return this.admit(event);
     } catch (error) {
-      return this.failed(error as BirdwatchError);
+      this.config.report(error as BirdwatchError);
+      const rejected = Promise.reject<Receipt>(error);
+      void rejected.catch(() => {});
+      return rejected;
     }
-  }
-  private failed(error: BirdwatchError) {
-    this.report(error);
-    const rejected = Promise.reject<Receipt>(error);
-    void rejected.catch(() => {});
-    return rejected;
-  }
-  captureEncoded(event: EncodedEvent): Promise<Receipt> {
-    if (this.closing)
-      return this.failed(
-        new BirdwatchError("closed", "The client has been shut down.")
-      );
-    return this.admit(event);
   }
   private admit(event: EncodedEvent, slot?: string) {
     if (this.pending.size >= this.config.maxQueue) {
@@ -91,7 +72,7 @@ export class DeliveryQueue {
       );
       this.remove(oldest);
       oldest.reject(error);
-      if (!this.overflow) this.report(error);
+      if (!this.overflow) this.config.report(error);
       this.overflow = true;
     }
     let resolve!: Pending["resolve"], reject!: Pending["reject"];
@@ -144,7 +125,7 @@ export class DeliveryQueue {
       this.remove(item);
       item.reject(error);
     }
-    this.report(error);
+    this.config.report(error);
   }
   private async deliver(rows: Pending[], keepalive = false) {
     let result;
@@ -163,11 +144,11 @@ export class DeliveryQueue {
           this.drop(rows, error);
           return;
         }
-        if (error.outcome === "pause" && !Number.isFinite(this.retryLimit)) {
+        if (error.outcome === "pause") {
           if (!this.paused) {
             this.paused = error;
             for (const item of this.pending) item.reject(error);
-            this.report(error);
+            this.config.report(error);
           }
           return;
         }
@@ -180,16 +161,11 @@ export class DeliveryQueue {
       const error = result.rejected.get(index);
       if (error) {
         item.reject(error);
-        this.report(error);
+        this.config.report(error);
       } else item.resolve({ id: item.id, batch: result.counts });
     });
     this.overflow = false;
-    this.ceiling = 1000;
-  }
-  private delay(error: DeliveryFailure) {
-    const ms = error.retryAfter ?? Math.random() * this.ceiling;
-    this.ceiling = Math.min(60000, this.ceiling * 2);
-    return ms;
+    this.failures = 0;
   }
   private retry(ms: number) {
     this.retryAt = Math.max(this.retryAt, Date.now() + ms);
@@ -208,24 +184,21 @@ export class DeliveryQueue {
       while (this.pending.size && !this.paused && Date.now() >= this.retryAt) {
         let rows = this.take(this.available());
         if (!rows.length) break;
-        let attempts = 0;
         while (rows.length && !this.paused) {
           try {
             await this.deliver(rows);
             break;
           } catch (error) {
             const failure = error as DeliveryFailure;
-            if (failure.outcome === "pause" || attempts++ >= this.retryLimit) {
-              this.drop(rows, failure);
-              break;
-            }
             this.retryAt = Math.max(
               this.retryAt,
-              Date.now() + this.delay(failure)
+              Date.now() + retryDelay(failure, this.failures++)
             );
-            await new Promise((resolve) =>
-              setTimeout(resolve, this.retryAt - Date.now())
-            );
+            while (Date.now() < this.retryAt) {
+              await new Promise((resolve) =>
+                setTimeout(resolve, this.retryAt - Date.now())
+              );
+            }
             rows = rows.filter((item) => this.pending.has(item));
           }
         }
@@ -253,7 +226,7 @@ export class DeliveryQueue {
               /* Keep the rows until an acknowledgement arrives. */
             }
           }
-          this.retry(this.delay(error));
+          this.retry(retryDelay(error, this.failures++));
         })
         .finally(() => {
           rows.forEach((item) => this.unloading.delete(item));

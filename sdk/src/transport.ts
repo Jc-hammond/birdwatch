@@ -14,25 +14,56 @@ function integer(
     invalid(`${field} must be an integer from ${min} to ${max}.`);
   return value;
 }
-function browserEndpoint(host: string) {
-  let url: URL;
-  try {
-    url = new URL(host);
-  } catch {
-    return invalid("host must be an absolute HTTP(S) URL.");
+const hostError = "Use an HTTP(S) host without credentials, query or fragment.";
+
+function endpoint(host: string) {
+  // Exact and React Native also run on hosts with partial WHATWG URL support.
+  const match = typeof host === "string" &&
+    /^https?:\/\/(?:\[[0-9a-f:.]+\]|[a-z0-9_.-]+)(?::([0-9]{1,5}))?(?:\/[^?#\\\s]*)?$/i.exec(host);
+  if (!match || Number(match[1] ?? 0) > 65535)
+    invalid(hostError);
+  return host.replace(/\/+$/, "") + "/api/capture";
+}
+
+// Exact can omit URL entirely. Validate numeric authorities before a bad
+// collector can park a durable outbox in a permanent network retry.
+export function captureEndpoint(host: string) {
+  const result = endpoint(host);
+  const authority = host.split("/")[2]!;
+  const literal = authority.startsWith("[") ? authority.slice(1, authority.indexOf("]")) : authority.split(":")[0]!;
+  if (literal.includes(":")) {
+    let address = literal;
+    if (address.includes(".")) {
+      const tail = address.slice(address.lastIndexOf(":") + 1);
+      if (!validIPv4(tail)) invalid(hostError);
+      address = address.slice(0, -tail.length) + "0:0";
+    }
+    const halves = address.split("::");
+    const groups = halves.flatMap(half => half ? half.split(":") : []);
+    if (halves.length > 2 || !groups.every(group => /^[0-9a-f]{1,4}$/i.test(group)) ||
+        (halves.length === 2 ? groups.length >= 8 : groups.length !== 8)) invalid(hostError);
+  } else if (/^[\d.]+$/.test(literal)) {
+    // IPv4 URL hosts can omit middle octets (127.1 is the loopback).
+    const parts = literal.replace(/\.$/, "").split(".");
+    const numbers = parts.map(part => /^0[0-7]+$/.test(part) ? parseInt(part, 8) :
+      /^(?:0|[1-9]\d*)$/.test(part) ? Number(part) : NaN);
+    if (parts.length > 4 || !numbers.every((n, index) =>
+      n >= 0 && n < (index === parts.length - 1 ? 256 ** (5 - parts.length) : 256))) invalid(hostError);
   }
-  if (
-    !["http:", "https:"].includes(url.protocol) ||
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash
-  )
-    invalid(
-      "host must be an HTTP(S) URL without credentials, a query, or a fragment."
-    );
-  url.pathname = url.pathname.replace(/\/+$/, "") + "/api/capture";
-  return url.href;
+  return result;
+}
+
+function validIPv4(address: string) {
+  const parts = address.split(".");
+  return parts.length === 4 && parts.every(part => /^(?:0|[1-9]\d{0,2})$/.test(part) && Number(part) <= 255);
+}
+
+function browserEndpoint(host: string) {
+  try {
+    return endpoint(new URL(host).href);
+  } catch {
+    return invalid(hostError);
+  }
 }
 
 export function configure(
@@ -48,7 +79,10 @@ export function configure(
   if (options.onError !== undefined && typeof options.onError !== "function")
     invalid("onError must be a function.");
   return {
-    onError: options.onError,
+    report(error: BirdwatchError) {
+      try { void Promise.resolve(options.onError?.(error)).catch(() => {}); }
+      catch { /* Observers do not change delivery outcomes. */ }
+    },
     endpoint,
     key: stringField(options.writeKey, "writeKey", 128),
     fetch: fetcher,
@@ -71,18 +105,28 @@ export class DeliveryFailure extends BirdwatchError {
   constructor(
     readonly outcome: "retry" | "pause" | "drop",
     status?: number,
-    readonly retryAfter?: number
+    readonly retryAfter?: number,
+    readonly retryAt?: number
   ) {
     super("http", "Collector did not acknowledge this batch.", status);
   }
 }
 
-export function payload(key: string, rows: { json: string }[]) {
+/** A rejected attempt uses Retry-After when available, otherwise full jitter. */
+export function retryDelay(error: unknown, failures: number, random = Math.random) {
+  if (error instanceof DeliveryFailure) {
+    if (error.retryAfter !== undefined) return error.retryAfter;
+    if (error.retryAt !== undefined) return Math.min(300000, Math.max(0, error.retryAt - Date.now()));
+  }
+  return random() * (1000 * Math.min(60, 2 ** failures));
+}
+
+export function payload(key: string, rows: { json: string }[], sentAt = new Date().toISOString()) {
   return (
     '{"api_key":' +
     JSON.stringify(key) +
     ',"sent_at":"' +
-    new Date().toISOString() +
+    sentAt +
     '","batch":[' +
     rows.map((e) => e.json).join(",") +
     "]}"
@@ -114,12 +158,8 @@ export async function send(
     if (response.status !== 200) {
       const status = response.status;
       const header = response.headers.get("Retry-After");
-      const wait =
-        header === null
-          ? NaN
-          : /^\d+(\.\d+)?$/.test(header)
-            ? Number(header) * 1000
-            : Date.parse(header) - Date.now();
+      const seconds = header !== null && /^\d+(\.\d+)?$/.test(header);
+      const date = header && !seconds ? Date.parse(header) : NaN;
       const outcome =
         status >= 500 || status === 429 || status === 408
           ? "retry"
@@ -131,7 +171,8 @@ export async function send(
       throw new DeliveryFailure(
         outcome,
         status,
-        Number.isNaN(wait) ? undefined : Math.min(300000, Math.max(0, wait))
+        seconds ? Math.min(300000, Number(header) * 1000) : undefined,
+        Number.isFinite(date) ? date : undefined
       );
     }
     const rejected = new Map<number, BirdwatchError>();

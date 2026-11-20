@@ -128,7 +128,8 @@ export function encodeEvent(
   name: unknown,
   person: unknown,
   props: unknown,
-  options: CaptureOptions
+  options: CaptureOptions,
+  timeOf: (value: unknown) => string | undefined = occurrenceTime
 ): EncodedEvent {
   if (!plainObject(options)) invalid("Capture options must be an object.");
   const id =
@@ -137,7 +138,7 @@ export function encodeEvent(
     uuid: id,
     event: stringField(name, "event", 128),
     distinct_id: stringField(person, "distinctId", 256),
-    timestamp: occurrenceTime(options.timestamp),
+    timestamp: timeOf(options.timestamp),
   };
   const properties = snapshotProperties(props === undefined ? {} : props);
   const json =
