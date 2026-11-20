@@ -106,7 +106,11 @@ Set a dashboard password before exposing Birdwatch to a network. Serve it over H
 
 A project write key lets clients send events. The dashboard administrator can read every project. For a public capture endpoint, apply request and traffic limits at your reverse proxy. Birdwatch is designed for one operator on one host.
 
-Use SQLite’s online backup command to copy a running database. For Compose, make an online backup inside the container or stop the service before taking a volume snapshot.
+With the Go binary, run `build/birdwatch backup --db data/birdwatch.sqlite3 snapshot.sqlite3`. The source defaults to `BIRDWATCH_DB` or `data/birdwatch.sqlite3`. Choose a new destination path for each copy. The command copies committed data, including the write-ahead log, while the server stays online.
+
+Start the Go server with `--backup-dir ./backups` or set `BIRDWATCH_BACKUP_DIR` to take a backup on startup and each UTC day. It keeps the newest seven dated backups in that directory. To restore, stop all processes using the live database, move the existing database and any matching `-wal`, `-shm` or `-journal` files to a separate location, copy the backup to the configured database path with owner-only permissions, then restart the server.
+
+For the Python reference, use SQLite’s online backup command to copy a running database. For Compose, make an online backup inside the container or stop the service before taking a volume snapshot.
 
 ```sh
 sqlite3 data/birdwatch.sqlite3 ".backup 'birdwatch-backup.sqlite3'"
