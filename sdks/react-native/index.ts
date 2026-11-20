@@ -149,7 +149,7 @@ export async function createReactNativeClient<
         timer = undefined;
         void flush().catch(() => {});
       },
-      Math.max(0, ms),
+      Math.max(0, Math.ceil(ms)),
     );
   }
   function cancel() {
@@ -178,7 +178,7 @@ export async function createReactNativeClient<
       (failure instanceof DeliveryFailure ? failure.retryAfter : undefined) ??
       Math.random() * ceiling;
     ceiling = Math.min(60000, ceiling * 2);
-    retryAt = Date.now() + delay;
+    retryAt = Date.now() + Math.ceil(delay);
     lastFailure = failure;
     cancel();
     schedule(delay);
@@ -218,6 +218,7 @@ export async function createReactNativeClient<
             settle(row, failure);
           }
           report(failure);
+          return failure;
         } else {
           flights.delete(outstanding);
           if (paused) {
@@ -227,11 +228,15 @@ export async function createReactNativeClient<
         throw failure;
       }
       await box.acknowledge(rows);
+      let firstRejection: BirdwatchError | undefined;
       rows.forEach((row, i) => {
         if (!outstanding.has(token(row))) return;
         const rejection = ack.rejected.get(i);
         forget(row);
-        if (rejection) report(rejection);
+        if (rejection) {
+          firstRejection ??= rejection;
+          report(rejection);
+        }
         settle(row, rejection, { id: row.id, batch: ack.counts });
       });
       overflow = false;
@@ -239,6 +244,7 @@ export async function createReactNativeClient<
         ceiling = 1000;
         retryAt = 0;
       }
+      return firstRejection;
     } finally {
       flights.delete(outstanding);
     }
@@ -252,17 +258,22 @@ export async function createReactNativeClient<
     return rows;
   }
   async function drain(background: boolean) {
+    let rejected: BirdwatchError | undefined;
     do {
       if (paused) throw paused;
-      if (!online || Date.now() < retryAt)
+      if (!online || Date.now() < retryAt) {
+        if (online) schedule(retryAt - Date.now());
         throw (
           lastFailure ??
           new BirdwatchError("network", "Delivery is waiting for connectivity.")
         );
+      }
       const rows = await next();
-      if (!rows.length) return;
-      await deliver(rows, background);
+      if (!rows.length) break;
+      const error = await deliver(rows, background);
+      rejected ??= error;
     } while (!background);
+    if (rejected) throw rejected;
   }
   async function flush(background = false): Promise<void> {
     await writes;
@@ -380,6 +391,7 @@ export async function createReactNativeClient<
     });
     unsubscribe = options.subscribeConnectivity?.((connected) => {
       online = connected;
+      cancel();
       if (online) wake();
     });
   } catch (cause) {
@@ -434,7 +446,12 @@ export async function createReactNativeClient<
           report(storageError(cause));
         }
         closing = Promise.all([flush(), identityWrite])
-          .then(() => {})
+          .then(
+            () => {},
+            (cause) => {
+              throw storageError(cause);
+            },
+          )
           .finally(() => {
             const e = new BirdwatchError(
               "closed",
