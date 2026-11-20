@@ -36,6 +36,8 @@ jobs:
       - name: Test the SDK
         working-directory: sdk
         run: npm ci && npm test
+      - name: Run SDK conformance scenarios
+        run: node --test sdks/conformance/web.test.mjs
       - name: Test the adapters
         run: node sdks/build.mjs && node --test sdks/test/*.test.mjs
       - name: Build the dashboard

@@ -1,0 +1,31 @@
+{
+  "rule": "Pause on unknown_key, report once and keep the queue until restart.",
+  "config": {
+    "browser": true,
+    "persist": true
+  },
+  "collector": [
+    {
+      "status": 401,
+      "code": "unknown_key"
+    }
+  ],
+  "steps": [
+    {
+      "capture": ["a"]
+    },
+    "flush",
+    {
+      "advanceMs": 120000
+    },
+    "flush"
+  ],
+  "expect": {
+    "requests": [
+      ["a"]
+    ],
+    "stored": [],
+    "outbox": ["a"],
+    "errors": 1
+  }
+}

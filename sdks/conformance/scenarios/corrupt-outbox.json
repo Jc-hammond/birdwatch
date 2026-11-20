@@ -1,0 +1,29 @@
+{
+  "rule": "Quarantine corrupt persistent data and keep accepting new events.",
+  "config": {
+    "browser": true,
+    "persist": true
+  },
+  "collector": ["ack"],
+  "steps": [
+    "offline",
+    {
+      "capture": ["corrupt-seed"]
+    },
+    "corruptOutbox",
+    "restart",
+    "online",
+    {
+      "capture": ["a"]
+    },
+    "flush"
+  ],
+  "expect": {
+    "requests": [
+      ["a"]
+    ],
+    "stored": ["a"],
+    "outbox": [],
+    "quarantined": true
+  }
+}

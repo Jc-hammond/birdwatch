@@ -1,0 +1,39 @@
+{
+  "rule": "Keep retrying 503 responses with full jitter up to the doubling backoff ceiling.",
+  "collector": [
+    {
+      "status": 503,
+      "code": "unavailable"
+    },
+    {
+      "status": 503,
+      "code": "unavailable"
+    },
+    {
+      "status": 503,
+      "code": "unavailable"
+    },
+    "ack"
+  ],
+  "steps": [
+    {
+      "capture": ["a"]
+    },
+    "flush",
+    {
+      "advanceMs": 7000
+    }
+  ],
+  "expect": {
+    "requests": [
+      ["a"],
+      ["a"],
+      ["a"],
+      ["a"]
+    ],
+    "stored": ["a"],
+    "outbox": [],
+    "errors": 0,
+    "retryDelaysMs": [500, 1000, 2000]
+  }
+}
