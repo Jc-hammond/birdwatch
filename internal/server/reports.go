@@ -335,7 +335,7 @@ func (q report) eventDays(start, end time.Time) (string, []any, bool, error) {
 		query += " UNION ALL SELECT substr(timestamp,1,10),event,COUNT(*) FROM events WHERE " + inWindow + " GROUP BY event"
 		args = append(args, q.id, end.Truncate(24*time.Hour).Format(stamp), end.Format(stamp))
 	}
-	return "WITH counts AS (" + query + ") ", args, partial, err
+	return "WITH RECURSIVE counts AS (" + query + ") ", args, partial, err
 }
 
 func (q report) overview(end time.Time) (any, error) {

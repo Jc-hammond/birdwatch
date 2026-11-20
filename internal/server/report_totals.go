@@ -48,15 +48,22 @@ func (q report) eventTotal(where string, args []any) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	// Daily totals survive retention. Subtract archived contributions only on
-	// days read from the rollup. A partial boundary already uses raw rows.
+	// A day that has lost raw events must be counted from its surviving rows.
+	// Probe the archive index once per day, even if millions of visitors expired.
+	// A partial boundary already uses raw rows in counts.
 	lastDaily := end
 	if partial {
 		lastDaily = end.AddDate(0, 0, -1)
 	}
-	params = append(params, q.id, q.start.Format(time.DateOnly), lastDaily.Format(time.DateOnly))
-	n, err := q.count(counts+`, raw_counts AS (SELECT event,count FROM counts UNION ALL
- SELECT event,-n FROM expired_counts WHERE project_id=? AND day BETWEEN ? AND ?)
+	params = append(params, q.start.Format(time.DateOnly), lastDaily.Format(time.DateOnly), q.id, q.id, q.cursor.AsOf)
+	n, err := q.count(counts+`, bounds(first,last) AS (VALUES(?,?)), days(day) AS (
+ SELECT first FROM bounds WHERE first<=last UNION ALL
+ SELECT date(day,'+1 day') FROM days,bounds WHERE day<last
+), archived AS MATERIALIZED (
+ SELECT day FROM days WHERE EXISTS(SELECT 1 FROM expired_counts a WHERE a.project_id=? AND a.day=days.day)
+), raw_counts AS (SELECT event,count FROM counts WHERE day NOT IN (SELECT day FROM archived)
+ UNION ALL SELECT e.event,1 FROM archived CROSS JOIN events e WHERE e.project_id=?
+ AND e.timestamp>=archived.day AND e.timestamp<date(archived.day,'+1 day') AND e.timestamp<=?)
  SELECT coalesce(sum(count),0) FROM raw_counts WHERE (?='' OR event=?)
  AND (?='' OR instr(lower(event),lower(?))>0)`, append(params, name, name, nameSearch, nameSearch)...)
 	if err != nil || matching == 0 || matching == persons {
