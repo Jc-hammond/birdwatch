@@ -57,7 +57,10 @@ func TestReadCancelsQueryAtDeadline(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 10*time.Second {
 		t.Fatalf("read ended after %s with %v", time.Since(start), err)
 	}
-	if err := s.Health(context.Background()); err != nil {
+	if err := s.Read(context.Background(), func(ctx context.Context, tx *sql.Tx) error {
+		var one int
+		return tx.QueryRowContext(ctx, "SELECT 1").Scan(&one)
+	}); err != nil {
 		t.Fatalf("reader unavailable after cancellation: %v", err)
 	}
 }

@@ -2,10 +2,12 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/ncruces/go-sqlite3"
 	"github.com/ncruces/go-sqlite3/driver"
 )
 
@@ -26,7 +28,12 @@ CREATE INDEX events_time ON events(project_id, timestamp, event, distinct_id);
 func (s *Store) migrate(ctx context.Context, steps []string, existing bool) error {
 	var version int
 	// Inspect through a read-only connection before opening a writer or changing journal mode.
-	if err := s.readers.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+	err := s.readers.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version)
+	if errors.Is(err, sqlite3.READONLY_ROLLBACK) || errors.Is(err, sqlite3.READONLY_RECOVERY) {
+		// SQLite needs write access to restore committed pages after an interrupted transaction.
+		err = s.writer.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version)
+	}
+	if err != nil {
 		return err
 	}
 	if version < 0 || version > len(steps) {
