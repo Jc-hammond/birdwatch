@@ -10,7 +10,7 @@ import (
 )
 
 func TestPanicReturnsJSONAndServerKeepsServing(t *testing.T) {
-	s := New(log.New(io.Discard, "", 0))
+	s := New(log.New(io.Discard, "", 0), "")
 	s.routes["/panic"] = map[string]endpoint{"GET": func(*http.Request) (any, error) { panic("test") }}
 	ts := httptest.NewServer(s)
 	defer ts.Close()

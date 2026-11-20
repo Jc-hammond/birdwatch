@@ -34,7 +34,7 @@ test:
 
 test-server: build
 	BIRDWATCH_REFERENCE=python BIRDWATCH_SERVER_CMD="$(PYTHON) server.py" $(GO) test -count=1 ./...
-	BIRDWATCH_SERVER_CMD=./build/birdwatch $(GO) test -count=1 -run '^TestDashboardAssets$$' ./contract
+	BIRDWATCH_REFERENCE=go BIRDWATCH_SERVER_CMD=./build/birdwatch $(GO) test -count=1 ./contract
 
 test-js: js-sdk
 	npm test --workspace @birdwatch/sdk

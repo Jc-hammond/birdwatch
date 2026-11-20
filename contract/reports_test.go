@@ -188,21 +188,65 @@ func TestSearchAndPagination(t *testing.T) {
 }
 
 func TestHostOriginAndPassword(t *testing.T) {
+	t.Run("guarded_routes", func(t *testing.T) {
+		s := startEmpty(t)
+		s.expect(t, 403, "GET", "/api/projects", nil, http.Header{"Host": {"foreign.test"}})
+		s.expect(t, 403, "POST", "/api/projects", object{"name": "x"}, http.Header{"Origin": {"https://foreign.test"}})
+		const password = "sample-test-password"
+		s = start(t, filepath.Join(t.TempDir(), "private.sqlite3"), false, password)
+		auth := func(value string) http.Header {
+			return http.Header{"Authorization": {"Basic " + base64.StdEncoding.EncodeToString([]byte(value))}}
+		}
+		for _, credentials := range []http.Header{nil, auth("owner:" + password), auth("admin:wrong")} {
+			r := s.expect(t, 401, "GET", "/api/projects", nil, credentials)
+			if !strings.HasPrefix(r.header.Get("WWW-Authenticate"), "Basic ") {
+				t.Fatal("missing Basic challenge")
+			}
+			check(t, "API cache policy", r.header.Get("Cache-Control"), "no-store")
+		}
+		headers := auth("admin:" + password)
+		headers.Set("Origin", s.url)
+		page := s.expect(t, 200, "GET", "/", nil, headers)
+		if page.header.Get("Content-Security-Policy") == "" || page.header.Get("Access-Control-Allow-Origin") != "" {
+			t.Fatal("private page is missing its same-origin policy")
+		}
+		headers.Set("Origin", "https://foreign.test")
+		s.expect(t, 403, "GET", "/", nil, headers)
+		public := http.Header{"Origin": {"https://app.test"}}
+		script := s.expect(t, 200, "GET", "/birdwatch.js", nil, public)
+		check(t, "public script CORS", script.header.Get("Access-Control-Allow-Origin"), "*")
+		check(t, "referrer policy", script.header.Get("Referrer-Policy"), "no-referrer")
+		check(t, "content sniffing", script.header.Get("X-Content-Type-Options"), "nosniff")
+		// Access policy applies even while the capture handler is being ported.
+		capture, err := s.request("OPTIONS", "/api/capture", nil, public)
+		if err != nil || capture.status == 401 || capture.status == 403 || capture.header.Get("WWW-Authenticate") != "" || capture.header.Get("Access-Control-Allow-Origin") != "*" {
+			t.Fatal("public capture request challenged or denied by the dashboard guard")
+		}
+	})
+	t.Run("error_codes_and_public_health", func(t *testing.T) {
+		s := start(t, filepath.Join(t.TempDir(), "private.sqlite3"), false, "sample-test-password")
+		unauthorized := s.expect(t, 401, "GET", "/", nil, nil)
+		check(t, "missing credential code", errorBody(t, unauthorized).Code, "unauthorized")
+		local := startEmpty(t)
+		denied := local.expect(t, 403, "GET", "/api/projects", nil, http.Header{"Host": {"foreign.test"}})
+		check(t, "foreign host code", errorBody(t, denied).Code, "forbidden")
+		s.expect(t, 200, "GET", "/healthz", nil, http.Header{"Origin": {"https://app.test"}})
+	})
+}
+
+// Exercise the actual project and ingestion endpoints with the dashboard protected.
+func TestAuthenticatedProjectReadsAndPublicCapture(t *testing.T) {
 	db := filepath.Join(t.TempDir(), "events.sqlite3")
 	s := start(t, db, false, "")
 	p := s.createProject(t, "Access")
-	s.expect(t, 403, "GET", "/api/projects", nil, http.Header{"Host": {"foreign.test"}})
-	s.expect(t, 403, "POST", "/api/projects", object{"name": "x"}, http.Header{"Origin": {"https://foreign.test"}})
 	preflight := s.expect(t, 204, "OPTIONS", "/api/capture", nil, http.Header{"Origin": {"https://app.test"}})
 	check(t, "capture allowed origin", preflight.header.Get("Access-Control-Allow-Origin"), "*")
-
 	s.stop()
 	const password = "sample-test-password"
 	s = start(t, db, false, password)
-	s.expect(t, 401, "GET", "/api/projects", nil, nil)
 	auth := "Basic " + base64.StdEncoding.EncodeToString([]byte("admin:"+password))
 	r := s.expect(t, 200, "GET", "/api/projects", nil, http.Header{"Authorization": {auth}})
-	if _, ok := r.header["Access-Control-Allow-Origin"]; ok {
+	if r.header.Get("Access-Control-Allow-Origin") != "" {
 		t.Error("private API returned a cross-origin access header")
 	}
 	s.capture(t, p, event("page_view", "a"), 200)

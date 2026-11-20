@@ -31,7 +31,6 @@ func represent(body []byte) representation {
 type Asset struct {
 	plain, gzip             representation
 	mediaType, cacheControl string
-	public                  bool
 }
 
 var files = loadAssets()
@@ -70,9 +69,9 @@ func loadAssets() map[string]*Asset {
 		}
 		cache := "no-cache"
 		if header.PAXRecords["BIRDWATCH.cache"] == "immutable" {
-			cache = "public, max-age=31536000, immutable"
+			cache = "private, max-age=31536000, immutable"
 		}
-		files[route] = &Asset{plain: represent(raw), gzip: represent(zipped), mediaType: media, cacheControl: cache, public: route == "/birdwatch.js"}
+		files[route] = &Asset{plain: represent(raw), gzip: represent(zipped), mediaType: media, cacheControl: cache}
 	}
 }
 
@@ -105,9 +104,6 @@ func (a *Asset) Serve(w http.ResponseWriter, r *http.Request) int {
 	h := w.Header()
 	h.Set("Cache-Control", a.cacheControl)
 	h.Set("Vary", "Accept-Encoding")
-	if a.public {
-		h.Set("Access-Control-Allow-Origin", "*")
-	}
 	rep := a.plain
 	if acceptsGzip(r.Header.Values("Accept-Encoding")) {
 		rep = a.gzip
