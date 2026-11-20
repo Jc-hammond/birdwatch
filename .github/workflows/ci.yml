@@ -17,9 +17,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.13'
       - uses: actions/setup-node@v6
         with:
           node-version: 24
@@ -80,4 +77,4 @@ jobs:
       - name: Update source line counts
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 .github/size.py
+        run: node .github/size.mjs

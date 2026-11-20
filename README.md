@@ -2,7 +2,7 @@
 
 Birdwatch is open-source product analytics you run on your own server. Track actions like sign-ups and checkouts, inspect the events behind a user’s activity, and see how many people go from one action to the next.
 
-One Python process serves the dashboard, browser script, and HTTP API. Events live in a SQLite database on your machine or server.
+One Go binary serves the dashboard, browser script, and HTTP API. Events live in a SQLite database on your machine or server.
 
 [Try the browser demo](https://birdwatch.connor-hammond.chatgpt.site/#demo)
 
@@ -10,10 +10,11 @@ One Python process serves the dashboard, browser script, and HTTP API. Events li
 
 ## Run locally
 
-Build the source checkout with `make build` once using the tools listed under Develop. Start the Python reference server from the project directory.
+From a clean checkout, install the tools listed under Develop and run the following commands.
 
 ```sh
-python3 server.py
+make build
+./build/birdwatch
 ```
 
 Open [Birdwatch on localhost](http://127.0.0.1:8123).
@@ -67,9 +68,9 @@ curl http://127.0.0.1:8123/api/capture \
   }'
 ```
 
-A new event returns `{"accepted":1,"duplicates":0}`. Reuse the same optional `uuid` when retrying that event so Birdwatch counts it once. The optional `timestamp` accepts ISO 8601 with a time zone and defaults to when the server receives the event.
+A new event returns `{"accepted":1,"duplicates":0,"rejected":[]}`. Reuse the same optional `uuid` when retrying that event so Birdwatch counts it once. The optional `timestamp` accepts ISO 8601 with a time zone and defaults to when the server receives the event.
 
-To send up to 100 events in one request, use a top-level `api_key` and a `batch` array of event objects. If any item is invalid, Birdwatch rejects the whole batch. The request limit is 1 MiB and the JSON-encoded properties limit is 32 KiB per event.
+To send up to 100 events in one request, use a top-level `api_key` and a `batch` array of event objects. Birdwatch reports rejected items by index. Use `"atomic": true` to roll back the whole batch if any item is invalid. The request limit is 1 MiB and the JSON-encoded properties limit is 32 KiB per event.
 
 ## Read the reports
 
@@ -82,7 +83,7 @@ Reports use UTC calendar days. Overview compares the selected period with the sa
 
 ## Docker Compose
 
-Run `make build` to prepare the dashboard and SDK downloads for the image. With Docker and its Compose plugin installed, run these commands from the project directory.
+Docker Compose builds the server, dashboard and downloadable SDKs from source. From the project directory, run these commands.
 
 ```sh
 export BIRDWATCH_PASSWORD="$(openssl rand -hex 24)"
@@ -91,7 +92,7 @@ docker compose up --build -d
 
 Open [Birdwatch on localhost](http://127.0.0.1:8123) and sign in as `admin` with the password you set. Run `printenv BIRDWATCH_PASSWORD` in the same shell to retrieve it. Keep the variable set for future Compose commands or save it in a local `.env` file.
 
-Compose binds the published port to loopback and stores the database in the `events` volume. Use `docker compose down` to stop the service and keep its data. If you also run the Python server directly, give the two instances different ports. Each uses its own database by default.
+Compose binds the published port to loopback and stores the database in the `events` volume. Use `docker compose down` to stop the service and keep its data. If you also run the binary directly, give the two instances different ports. Each uses its own database by default.
 
 ## Hosting and storage
 
@@ -99,7 +100,7 @@ Compose binds the published port to loopback and stores the database in the `eve
 | --- | --- | --- |
 | `BIRDWATCH_HOST` or `--host` | `127.0.0.1` | IPv4 address to listen on |
 | `BIRDWATCH_PORT` or `--port` | `8123` | HTTP port |
-| `BIRDWATCH_DB` or `--db` | `data/birdwatch.sqlite3` | Database path, relative to `server.py` by default |
+| `BIRDWATCH_DB` or `--db` | `data/birdwatch.sqlite3` | Database path, relative to the working directory |
 | `BIRDWATCH_PASSWORD` | unset | HTTP Basic password for the dashboard user `admin` |
 
 Set a dashboard password before exposing Birdwatch to a network. Serve it over HTTPS through a reverse proxy and preserve the original `Host` header. Use the public HTTPS URL in your app’s integration. If your site uses Content Security Policy, allow the Birdwatch origin in `script-src` and `connect-src`.
@@ -110,15 +111,11 @@ With the Go binary, run `build/birdwatch backup --db data/birdwatch.sqlite3 snap
 
 Start the Go server with `--backup-dir ./backups` or set `BIRDWATCH_BACKUP_DIR` to take a backup on startup and each UTC day. It keeps the newest seven dated backups in that directory. To restore, stop all processes using the live database, move the existing database and any matching `-wal`, `-shm` or `-journal` files to a separate location, copy the backup to the configured database path with owner-only permissions, then restart the server.
 
-For the Python reference, use SQLite’s online backup command to copy a running database. For Compose, make an online backup inside the container or stop the service before taking a volume snapshot.
-
-```sh
-sqlite3 data/birdwatch.sqlite3 ".backup 'birdwatch-backup.sqlite3'"
-```
+For a live Compose backup, run `docker compose exec birdwatch /birdwatch backup /data/snapshot.sqlite3`, then copy the snapshot out of the volume with `docker compose cp birdwatch:/data/snapshot.sqlite3 ./snapshot.sqlite3`.
 
 ## Develop
 
-Install Make, Go 1.26+, Node.js 24 with npm, Python 3.9+ with SQLite 3.25+, JDK 17, Android SDK Platform 35, tar and zip. Set `JAVA_HOME` and `ANDROID_HOME` to their installation paths. The Swift tests require macOS with the Swift 5.9+ toolchain.
+Install Make, Go 1.26+, Node.js 24 with npm, JDK 17, Android SDK Platform 35, tar and zip. Set `JAVA_HOME` and `ANDROID_HOME` to their installation paths. The Swift tests require macOS with the Swift 5.9+ toolchain.
 
 ```sh
 make build    # build SDK archives, dashboard, and build/birdwatch
@@ -126,6 +123,6 @@ make test     # build and run the server, JavaScript and native checks
 make lint     # Go vet, SDK types and whitespace
 ```
 
-The npm workspace installs its pinned tools from the root lockfile. The dashboard and offline downloads are generated into `static/`. The Go binary embeds the dashboard and its SDK downloads, so it can run from any directory. If invoking `go build` directly, run `make dashboard` first. The Python reference provides the full analytics API during the port.
+The npm workspace installs its pinned tools from the root lockfile. The dashboard and offline downloads are generated into `static/`. The Go binary embeds the dashboard and its SDK downloads, so it can run from any directory. If invoking `go build` directly, run `make dashboard` first.
 
 Birdwatch is available under the [MIT license](LICENSE). See [third-party notices](THIRD_PARTY_NOTICES.txt) for bundled dependencies.

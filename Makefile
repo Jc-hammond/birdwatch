@@ -1,5 +1,4 @@
 GO ?= go
-PYTHON ?= python3
 
 .PHONY: build test lint release js-sdk dashboard archives android-release test-server test-js test-swift test-android check-clean
 
@@ -33,8 +32,7 @@ test:
 	{ echo "Tests failed or tracked files changed during the run." >&2; exit 1; }
 
 test-server: build
-	BIRDWATCH_REFERENCE=python BIRDWATCH_SERVER_CMD="$(PYTHON) server.py" $(GO) test -count=1 ./...
-	BIRDWATCH_REFERENCE=go BIRDWATCH_SERVER_CMD=./build/birdwatch $(GO) test -count=1 ./contract
+	BIRDWATCH_SERVER_CMD=./build/birdwatch $(GO) test -count=1 ./...
 
 test-js: js-sdk
 	npm test --workspace @birdwatch/sdk
