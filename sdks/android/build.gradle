@@ -11,8 +11,8 @@ android {
 
     defaultConfig {
         minSdk 24
-        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
+    sourceSets.test.java.srcDir("../conformance/android")
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
@@ -20,6 +20,12 @@ android {
 }
 
 dependencies {
-    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
-    androidTestImplementation 'androidx.test:runner:1.6.2'
+    compileOnly 'androidx.annotation:annotation:1.8.2'
+    testImplementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
+}
+
+tasks.withType(Test).configureEach {
+    inputs.files(fileTree("../conformance") { include "*.mjs", "scenarios/*.json" })
 }

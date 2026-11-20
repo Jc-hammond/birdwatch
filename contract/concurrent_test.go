@@ -2,6 +2,7 @@ package contract_test
 
 import (
 	"encoding/json"
+	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -34,6 +35,16 @@ func TestConcurrentCapture(t *testing.T) {
 	close(start)
 	workers.Wait()
 	check(t, "acknowledged events", acknowledged.Load(), int32(events))
+	if os.Getenv("BIRDWATCH_REFERENCE") == "go" {
+		rows := s.captureRows(t, p)
+		people := map[string]bool{}
+		for _, row := range rows {
+			people[row.Person] = true
+		}
+		check(t, "stored events", len(rows), events)
+		check(t, "distinct people", len(people), events)
+		return
+	}
 	// Each event has its own person, so replacement by a duplicate cannot hide a loss.
 	check(t, "stored totals", s.overview(t, p, 7).Current, []float64{events, events, events, 1})
 }

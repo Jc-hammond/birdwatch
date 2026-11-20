@@ -8,10 +8,13 @@ import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 import java.io.File;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 import java.util.TimeZone;
 import java.util.UUID;
+import java.util.function.Consumer;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -31,21 +34,52 @@ final class Outbox extends SQLiteOpenHelper {
     }
   }
 
-  private final String scope, writeKey;
+  private final String scope;
+  private final Consumer<Throwable> onError;
+  private final Consumer<Long> onEvicted;
+  private boolean overflow;
   private final int capacity;
   private final SimpleDateFormat clock =
       new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
 
-  Outbox(Context context, String scope, String writeKey, int capacity) {
+  Outbox(
+      Context context,
+      String scope,
+      int capacity,
+      Consumer<Throwable> onError,
+      Consumer<Throwable> onCorrupt,
+      Consumer<Long> onEvicted) {
     super(
         context,
         new File(context.getNoBackupFilesDir(), "birdwatch-v1.sqlite3").getAbsolutePath(),
         null,
-        1);
+        1,
+        db -> quarantine(db, onCorrupt));
     this.scope = scope;
-    this.writeKey = writeKey;
     this.capacity = capacity;
+    this.onError = onError;
+    this.onEvicted = onEvicted;
     clock.setTimeZone(TimeZone.getTimeZone("UTC"));
+  }
+
+  private static void quarantine(SQLiteDatabase db, Consumer<Throwable> onError) {
+    File source = new File(db.getPath());
+    String target = source.getPath() + ".corrupt-" + UUID.randomUUID();
+    if (db.isOpen()) db.close();
+    // Move journals first. If a move fails, retain the main file and restore the group.
+    ArrayList<String> moved = new ArrayList<>();
+    for (String suffix : new String[] {"-wal", "-shm", "-journal", ""}) {
+      File part = new File(source.getPath() + suffix);
+      if (!part.exists()) continue;
+      if (!part.renameTo(new File(target + suffix))) {
+        for (String previous : moved)
+          if (!new File(target + previous).renameTo(new File(source.getPath() + previous)))
+            throw new IllegalStateException("Could not restore quarantined outbox files");
+        throw new IllegalStateException("Could not quarantine the damaged outbox");
+      }
+      moved.add(suffix);
+    }
+    onError.accept(new IllegalStateException("Quarantined a damaged Birdwatch outbox"));
   }
 
   @Override
@@ -80,7 +114,11 @@ final class Outbox extends SQLiteOpenHelper {
   }
 
   Row put(Event event) {
+    if (event == null) throw new IllegalArgumentException("Event is required");
+    if (event.invalid != null) throw event.invalid;
     SQLiteDatabase db = getWritableDatabase();
+    long evicted = 0;
+    Row result;
     db.beginTransaction();
     try {
       Row existing =
@@ -91,13 +129,19 @@ final class Outbox extends SQLiteOpenHelper {
         db.setTransactionSuccessful();
         return existing;
       }
-      if (DatabaseUtils.longForQuery(
-              db, "SELECT COUNT(*) FROM events WHERE scope=?", new String[] {scope})
-          >= capacity) throw new IllegalStateException("Birdwatch outbox is full");
+      // A lower capacity on reopen may expire more than one row.
+      try (Cursor cutoff =
+          db.rawQuery(
+              "SELECT seq FROM events WHERE scope=? ORDER BY seq DESC LIMIT 1 OFFSET ?",
+              new String[] {scope, Integer.toString(capacity - 1)})) {
+        if (cutoff.moveToFirst()) {
+          evicted = cutoff.getLong(0);
+          db.delete("events", "scope=? AND seq<=?", new String[] {scope, Long.toString(evicted)});
+        }
+      }
       // Retain the original properties JSON, including the precision of integer literals.
       String base =
           new JSONObject()
-              .put("api_key", writeKey)
               .put("uuid", event.id)
               .put("event", event.name)
               .put("distinct_id", identity())
@@ -109,20 +153,32 @@ final class Outbox extends SQLiteOpenHelper {
       values.put("scope", scope);
       values.put("uuid", event.id);
       values.put("body", body);
-      Row result = new Row(db.insertOrThrow("events", null, values), event.id, body);
+      result = new Row(db.insertOrThrow("events", null, values), event.id, body);
       db.setTransactionSuccessful();
-      return result;
     } catch (JSONException e) {
       throw new IllegalArgumentException("Invalid capture", e);
     } finally {
       db.endTransaction();
     }
+    if (evicted != 0) {
+      onEvicted.accept(evicted);
+      if (!overflow)
+        onError.accept(new IllegalStateException("Outbox full; dropped the oldest event"));
+      overflow = true;
+    }
+    return result;
   }
 
-  Row first() {
-    return row(
-        "SELECT seq,uuid,body FROM events WHERE scope=? ORDER BY seq LIMIT 1",
-        new String[] {scope});
+  List<Row> batch() {
+    ArrayList<Row> rows = new ArrayList<>();
+    try (Cursor c =
+        getReadableDatabase()
+            .rawQuery(
+                "SELECT seq,uuid,body FROM events WHERE scope=? ORDER BY seq LIMIT 100",
+                new String[] {scope})) {
+      while (c.moveToNext()) rows.add(new Row(c.getLong(0), c.getString(1), c.getString(2)));
+    }
+    return rows;
   }
 
   long lastSequence() {
@@ -132,9 +188,20 @@ final class Outbox extends SQLiteOpenHelper {
         new String[] {scope});
   }
 
-  void remove(Row row) {
-    getWritableDatabase()
-        .delete("events", "scope=? AND seq=?", new String[] {scope, Long.toString(row.sequence)});
+  void acknowledge(List<Row> rows) {
+    SQLiteDatabase db = getWritableDatabase();
+    db.beginTransaction();
+    try {
+      for (Row row : rows)
+        db.delete(
+            "events",
+            "scope=? AND seq=? AND uuid=?",
+            new String[] {scope, Long.toString(row.sequence), row.id});
+      db.setTransactionSuccessful();
+    } finally {
+      db.endTransaction();
+    }
+    overflow = false;
   }
 
   private Row row(String sql, String[] args) {
