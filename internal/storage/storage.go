@@ -3,6 +3,7 @@ package storage
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"net/url"
@@ -11,7 +12,8 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/ncruces/go-sqlite3/driver"
+	"github.com/ncruces/go-sqlite3"
+	"github.com/ncruces/go-sqlite3/driver"
 )
 
 const readTimeout = 5 * time.Second
@@ -63,7 +65,12 @@ func open(ctx context.Context, path string, create bool) (*Store, error) {
 			}
 		}
 	}
-	writer, err := sql.Open("sqlite3", fileURI(path, "rw"))
+	writer, err := driver.Open(fileURI(path, "rw"), func(conn *sqlite3.Conn) error {
+		return conn.CreateFunction("receipt_hash", 1, sqlite3.DETERMINISTIC|sqlite3.INNOCUOUS, func(ctx sqlite3.Context, args ...sqlite3.Value) {
+			digest := sha256.Sum256(args[0].RawText())
+			ctx.ResultBlob(digest[:])
+		})
+	})
 	if err != nil {
 		return nil, err
 	}

@@ -195,7 +195,8 @@ func storeEvent(ctx context.Context, tx *sql.Tx, project int64, item fields, rec
 			return false, err
 		}
 		var exists bool
-		if err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM events WHERE project_id=? AND uuid=?)", project, id).Scan(&exists); err != nil || exists {
+		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM events WHERE project_id=?1 AND uuid=?2) OR
+ EXISTS(SELECT 1 FROM expired_receipts WHERE project_id=?1 AND digest=receipt_hash(?2))`, project, id).Scan(&exists); err != nil || exists {
 			return exists, err
 		}
 		uuid = id

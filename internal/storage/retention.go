@@ -10,12 +10,18 @@ import (
 const retentionSchema = `
 ALTER TABLE projects ADD COLUMN retention_days INTEGER CHECK(retention_days >= 1);
 ALTER TABLE projects ADD COLUMN deleted_max_id INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE projects ADD COLUMN retention_revision INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX deleted_event_sequence ON projects(deleted_max_id);
 CREATE TABLE expired_counts (
  project_id INTEGER NOT NULL REFERENCES projects(id), distinct_id TEXT NOT NULL, day TEXT NOT NULL,
  event TEXT NOT NULL, n INTEGER NOT NULL, first_ts TEXT NOT NULL, last_ts TEXT NOT NULL,
  PRIMARY KEY(project_id,distinct_id,day,event)
 ) WITHOUT ROWID;
+CREATE TABLE expired_receipts (
+ project_id INTEGER NOT NULL REFERENCES projects(id), digest BLOB NOT NULL, distinct_id TEXT NOT NULL,
+ PRIMARY KEY(project_id,digest)
+) WITHOUT ROWID;
+CREATE INDEX expired_receipts_person ON expired_receipts(project_id,distinct_id);
 `
 
 // RunRetention starts with a sweep so reopening the database also enforces its policy.
@@ -84,7 +90,11 @@ func (s *Store) sweep(ctx context.Context, now time.Time) error {
 				if err != nil {
 					return err
 				}
-				if _, err = tx.ExecContext(ctx, "UPDATE projects SET deleted_max_id=max(deleted_max_id,(SELECT max(id) FROM expiry_batch)) WHERE id=?", project); err != nil {
+				if _, err = tx.ExecContext(ctx, `INSERT INTO expired_receipts
+ SELECT project_id,receipt_hash(uuid),distinct_id FROM events WHERE id IN expiry_batch AND uuid IS NOT NULL`); err != nil {
+					return err
+				}
+				if _, err = tx.ExecContext(ctx, "UPDATE projects SET retention_revision=retention_revision+1,deleted_max_id=max(deleted_max_id,(SELECT max(id) FROM expiry_batch)) WHERE id=?", project); err != nil {
 					return err
 				}
 				_, err = tx.ExecContext(ctx, "DELETE FROM events WHERE id IN expiry_batch")
@@ -105,8 +115,9 @@ func (s *Store) sweep(ctx context.Context, now time.Time) error {
 // visitor's summaries. The caller holds the writer and has checked the project.
 func ErasePerson(ctx context.Context, tx *sql.Tx, project int64, person string) (int64, error) {
 	var count int64
-	if err := tx.QueryRowContext(ctx, "SELECT coalesce(sum(count),0) FROM daily_people WHERE project_id=? AND distinct_id=?", project, person).Scan(&count); err != nil || count == 0 {
-		return count, err
+	if err := tx.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM events WHERE project_id=?1 AND distinct_id=?2)
+ + coalesce((SELECT sum(n) FROM expired_counts WHERE project_id=?1 AND distinct_id=?2),0)`, project, person).Scan(&count); err != nil {
+		return 0, err
 	}
 	const subtract = `WITH contributions AS (
  SELECT substr(timestamp,1,10) day,event,count(*) n FROM events WHERE project_id=?1 AND distinct_id=?2 GROUP BY 1,2
@@ -115,9 +126,10 @@ func ErasePerson(ctx context.Context, tx *sql.Tx, project int64, person string) 
  UPDATE daily_events AS d SET count=count-t.n FROM totals t WHERE d.project_id=?1 AND d.day=t.day AND d.event=t.event`
 	for _, query := range []string{
 		subtract,
-		"UPDATE projects SET deleted_max_id=max(deleted_max_id,coalesce((SELECT max(id) FROM events WHERE project_id=?1 AND distinct_id=?2),0)) WHERE id=?1",
+		"UPDATE projects SET retention_revision=retention_revision+1,deleted_max_id=max(deleted_max_id,coalesce((SELECT max(id) FROM events WHERE project_id=?1 AND distinct_id=?2),0)) WHERE id=?1 AND EXISTS(SELECT 1 FROM daily_people WHERE project_id=?1 AND distinct_id=?2 UNION ALL SELECT 1 FROM events WHERE project_id=?1 AND distinct_id=?2)",
 		"DELETE FROM events WHERE project_id=? AND distinct_id=?",
 		"DELETE FROM expired_counts WHERE project_id=? AND distinct_id=?",
+		"DELETE FROM expired_receipts WHERE project_id=? AND distinct_id=?",
 		"DELETE FROM daily_people WHERE project_id=? AND distinct_id=?",
 	} {
 		if _, err := tx.ExecContext(ctx, query, project, person); err != nil {

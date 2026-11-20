@@ -14,7 +14,7 @@ func TestProjectRetention(t *testing.T) {
 	s := start(t, path, false, "")
 	p := s.createProject(t, "Retention")
 	base := "/api/projects/" + strconv.Itoa(p.id)
-	s.capture(t, p, object{"event": "old", "distinct_id": "subscriber", "timestamp": time.Now().UTC().AddDate(0, 0, -3)}, 200)
+	s.capture(t, p, object{"event": "old", "distinct_id": "subscriber", "uuid": "expiry-retry", "timestamp": time.Now().UTC().AddDate(0, 0, -3)}, 200)
 	s.capture(t, p, event("fresh", "subscriber"), 200)
 	before := s.overview(t, p, 7)
 	for _, value := range []any{0, -1, 1.5, "1"} {
@@ -30,6 +30,7 @@ func TestProjectRetention(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
+	expectCounts(t, s.capture(t, p, object{"event": "old", "distinct_id": "subscriber", "uuid": "expiry-retry"}, 200), 0, 1)
 	check(t, "fresh rows", rowCount(t, s.report(t, p, "events")), 1)
 	check(t, "daily totals", s.overview(t, p, 7).Series, before.Series)
 	check(t, "stored retention", decode[object](t, s.report(t, p, "setup"))["retention_days"], float64(1))
@@ -63,7 +64,7 @@ func TestErasePerson(t *testing.T) {
 	check(t, "other project", rowCount(t, s.report(t, other, "events?person="+url.QueryEscape(person))), 1)
 	s.stop()
 	s = start(t, db, true, "retention-owner")
-	key := http.Header{"Authorization": {"Bearer " + p.key}}
+	key := http.Header{"Authorization": {"Bearer " + other.key}}
 	s.expect(t, 401, "DELETE", projectPath(other.id, "people/"+url.PathEscape(person)), nil, key)
 	s.expect(t, 401, "PATCH", "/api/projects/"+strconv.Itoa(other.id), object{"retention_days": 1}, key)
 }

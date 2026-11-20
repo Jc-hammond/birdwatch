@@ -200,6 +200,10 @@ successful response echoes the setting. Setup and project listings also return i
 At startup and once an hour, the server removes expired raw events in transactions
 of at most 10,000. It keeps daily counts, including each person's contribution
 by event name, so totals survive a sweep and can still be corrected on erasure.
+A digest of each expired UUID prevents delayed retries from incrementing those
+totals a second time. Erasure also removes the person's digests. An events or
+people cursor issued before a sweep removed events or the owner erased someone
+returns HTTP 409 (`cursor_expired`). Restart that listing from the first page.
 
 `DELETE /api/projects/{id}/people/{distinct_id}` erases the person's raw events
 and daily contributions within that project. Encode the ID as one URL path
