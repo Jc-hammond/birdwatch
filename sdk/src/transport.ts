@@ -71,7 +71,7 @@ export class DeliveryFailure extends BirdwatchError {
   constructor(
     readonly outcome: "retry" | "pause" | "drop",
     status?: number,
-    readonly after?: number
+    readonly retryAfter?: number
   ) {
     super("http", "Collector did not acknowledge this batch.", status);
   }
@@ -93,19 +93,21 @@ export async function send(
   config: Config,
   body: string,
   count: number,
-  browser: boolean
+  browser: boolean,
+  keepalive: boolean
 ) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.timeout);
   try {
-    const response = await config.fetch(config.endpoint, {
+    const fetcher = config.fetch;
+    const response = await fetcher(config.endpoint, {
       method: "POST",
       body,
       headers: { "Content-Type": browser ? "text/plain" : "application/json" },
       signal: controller.signal,
       credentials: "omit",
       referrerPolicy: "no-referrer",
-      keepalive: browser,
+      keepalive,
       redirect: "error",
     });
     const ack = await response.json().catch(() => null);

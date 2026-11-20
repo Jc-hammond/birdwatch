@@ -56,13 +56,7 @@ export async function createReactNativeClient<
   const retries = options.maxRetries ?? 2;
   if (!Number.isInteger(retries) || retries < 0 || retries > 5)
     invalid("maxRetries must be an integer from 0 to 5.");
-  const queue = new DeliveryQueue(
-    options,
-    captureEndpoint,
-    false,
-    undefined,
-    retries
-  );
+  const queue = new DeliveryQueue(options, captureEndpoint, false, retries);
   const storage =
     options.storage === undefined ? AsyncStorage : options.storage;
   const scope = JSON.stringify([

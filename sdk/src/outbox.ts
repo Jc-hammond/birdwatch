@@ -34,8 +34,12 @@ export function browserOutbox(host: string, key: string, report: () => void) {
               throw Error();
             add({ id: data.uuid, json, bytes: utf8Length(json) }, slot);
           } catch {
-            store.setItem("corrupt:" + slot, json);
-            store.removeItem(slot);
+            try {
+              store.setItem("corrupt:" + slot, json);
+              store.removeItem(slot);
+            } catch {
+              /* Preserve the original if the store cannot copy it. */
+            }
             failed();
           }
         }

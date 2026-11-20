@@ -1,6 +1,4 @@
 import { invalid, newId, stringField } from "./event.js";
-import { BirdwatchError } from "./types.js";
-import { browserOutbox } from "./outbox.js";
 import { DeliveryQueue } from "./queue.js";
 import type {
   BrowserClient,
@@ -17,23 +15,7 @@ export function createBrowserClient<C extends CatalogShape<C> = EventCatalog>(
     invalid(
       "createBrowserClient requires a browser. Use createServerClient on the server."
     );
-  const outbox = options.persist
-    ? browserOutbox(options.host, options.writeKey, () => {
-        try {
-          void Promise.resolve(
-            options.onError?.(
-              new BirdwatchError(
-                "storage",
-                "Browser queue storage is unavailable or corrupt."
-              )
-            )
-          ).catch(() => {});
-        } catch {
-          /* Ignore observer errors. */
-        }
-      })
-    : undefined;
-  const queue = new DeliveryQueue(options, undefined, true, outbox);
+  const queue = new DeliveryQueue(options, undefined, true);
   const persistence = options.persistence ?? "localStorage";
   if (!["memory", "localStorage"].includes(persistence))
     invalid("Unknown identity persistence mode.");
@@ -70,7 +52,9 @@ export function createBrowserClient<C extends CatalogShape<C> = EventCatalog>(
       event.storageArea === storage &&
       (event.key === key || event.key === null)
     ) {
-      identify(readStored() ?? newId());
+      const stored = readStored();
+      if (stored) person = stored;
+      else identify(newId());
     }
   }
   function flushPage() {

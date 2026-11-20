@@ -36,7 +36,7 @@ console.log(receipt.id);
 ```
 
 - **Identity.** The first visit gets a random anonymous ID. Read it with `analytics.distinctId`. `identify(id)` sets the identity for subsequent events, including across page loads. Call `reset()` at logout to create a new anonymous identity. Previous events retain the identity they had at capture time. Historical identities are separate in the collector.
-- **Page views.** Call `page()` after a committed route change to record the current pathname. The module sends events only when called. Query parameters, fragments, referrers, and cookies are excluded.
+- **Page views.** Call `page()` after a committed route change to record the current pathname. The module sends events only when called. The event contains the pathname. It omits query parameters, fragments, referrers and cookies.
 - **Persistence.** The browser client stores identity in local storage per Birdwatch project and observes changes from other tabs. Choose `persistence: "memory"` for a page-lifetime identity. If storage is unavailable, it falls back to memory.
 - **Consent.** Where your app requires consent, create the client after consent is granted. Creating the default browser client initializes its local identity.
 - **SSR.** Importing the package is side-effect free. Create the browser client after the browser environment is available.
@@ -105,7 +105,7 @@ Invalid input and terminal delivery errors reject the capture promise. A success
 
 Transient failures and unrecognized responses keep their events queued. The retry ceiling starts at one second and doubles to 60 seconds, with a random delay between zero and the ceiling. A valid `Retry-After` overrides the delay up to five minutes.
 
-The queue uses memory by default. Set `persist: true` on a browser client to retain unacknowledged events across reloads. A storage failure reports once and delivery continues from memory. On page hide, the SDK attempts keepalive delivery and falls back to a beacon if the fetch fails.
+The queue uses memory by default. Set `persist: true` on a browser client to retain unacknowledged events across reloads. A storage failure reports once and delivery continues from memory. On page hide, the SDK attempts keepalive delivery and falls back to a beacon if the fetch fails. The browser applies its own referrer and cookie policies to beacon requests.
 
 | Option | Default | Behavior |
 | --- | --- | --- |

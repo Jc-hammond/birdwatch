@@ -1,9 +1,9 @@
 import { utf8Length } from "./utf8.js";
 import { encodeEvent, type EncodedEvent } from "./event.js";
 import { configure, DeliveryFailure, payload, send } from "./transport.js";
-import type { browserOutbox } from "./outbox.js";
+import { browserOutbox } from "./outbox.js";
 import { BirdwatchError } from "./types.js";
-import type { CaptureOptions, ClientOptions, Receipt } from "./types.js";
+import type { CaptureOptions, BrowserOptions, Receipt } from "./types.js";
 
 interface Pending extends EncodedEvent {
   slot?: string;
@@ -15,25 +15,36 @@ interface Pending extends EncodedEvent {
 export class DeliveryQueue {
   private readonly config;
   private readonly overhead;
+  private readonly outbox?: ReturnType<typeof browserOutbox>;
   private readonly pending = new Set<Pending>();
   private timer?: ReturnType<typeof setTimeout>;
   private running = false;
   private paused?: BirdwatchError;
-  private unloading?: Promise<void>;
+  private readonly unloading = new Set<Pending>();
+  private retryAt = 0;
   private overflow = false;
   private ceiling = 1000;
   private closing?: Promise<void>;
 
   constructor(
-    options: ClientOptions,
+    options: BrowserOptions,
     endpointFor?: (host: string) => string,
     private readonly browser = false,
-    private readonly outbox?: ReturnType<typeof browserOutbox>,
     private readonly retryLimit = Infinity
   ) {
     this.config = configure(options, endpointFor);
     this.overhead = utf8Length(payload(this.config.key, []));
-    outbox?.restore((event, slot) => this.admit(event, slot));
+    if (browser && options.persist) {
+      this.outbox = browserOutbox(this.config.endpoint, this.config.key, () =>
+        this.report(
+          new BirdwatchError(
+            "storage",
+            "Browser queue storage is unavailable or corrupt."
+          )
+        )
+      );
+      this.outbox.restore((event, slot) => this.admit(event, slot));
+    }
   }
 
   private report(error: BirdwatchError) {
@@ -135,14 +146,15 @@ export class DeliveryQueue {
     }
     this.report(error);
   }
-  private async deliver(rows: Pending[]) {
+  private async deliver(rows: Pending[], keepalive = false) {
     let result;
     try {
       result = await send(
         this.config,
         payload(this.config.key, rows),
         rows.length,
-        this.browser
+        this.browser,
+        keepalive
       );
     } catch (error) {
       if (!rows.some((item) => this.pending.has(item))) return;
@@ -174,40 +186,48 @@ export class DeliveryQueue {
     this.overflow = false;
     this.ceiling = 1000;
   }
+  private delay(error: DeliveryFailure) {
+    const ms = error.retryAfter ?? Math.random() * this.ceiling;
+    this.ceiling = Math.min(60000, this.ceiling * 2);
+    return ms;
+  }
+  private retry(ms: number) {
+    this.retryAt = Math.max(this.retryAt, Date.now() + ms);
+    clearTimeout(this.timer);
+    this.schedule(this.retryAt - Date.now());
+  }
+  private available() {
+    return Array.from(this.pending).filter((item) => !this.unloading.has(item));
+  }
   private async drain() {
-    if (
-      this.running ||
-      this.paused ||
-      this.unloading ||
-      (this.ceiling > 1000 && this.timer !== undefined)
-    )
-      return;
+    if (this.running || this.paused || Date.now() < this.retryAt) return;
     clearTimeout(this.timer);
     this.timer = undefined;
     this.running = true;
-    let attempts = 0;
     try {
-      while (this.pending.size && !this.paused) {
-        if (this.unloading) await this.unloading;
-        if (!this.pending.size || this.paused) break;
-        const rows = this.take(Array.from(this.pending));
-        try {
-          await this.deliver(rows);
-          attempts = 0;
-        } catch (error) {
-          const failure = error as DeliveryFailure;
-          if (attempts++ >= this.retryLimit) {
-            this.drop(rows, failure);
-            attempts = 0;
-            continue;
+      while (this.pending.size && !this.paused && Date.now() >= this.retryAt) {
+        let rows = this.take(this.available());
+        if (!rows.length) break;
+        let attempts = 0;
+        while (rows.length && !this.paused) {
+          try {
+            await this.deliver(rows);
+            break;
+          } catch (error) {
+            const failure = error as DeliveryFailure;
+            if (failure.outcome === "pause" || attempts++ >= this.retryLimit) {
+              this.drop(rows, failure);
+              break;
+            }
+            this.retryAt = Math.max(
+              this.retryAt,
+              Date.now() + this.delay(failure)
+            );
+            await new Promise((resolve) =>
+              setTimeout(resolve, this.retryAt - Date.now())
+            );
+            rows = rows.filter((item) => this.pending.has(item));
           }
-          const delay = failure.after ?? Math.random() * this.ceiling;
-          this.ceiling = Math.min(60000, this.ceiling * 2);
-          if (!Number.isFinite(this.retryLimit)) {
-            this.schedule(delay);
-            return;
-          }
-          await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
     } finally {
@@ -216,39 +236,36 @@ export class DeliveryQueue {
   }
 
   unload() {
-    if (this.paused || this.unloading || !this.pending.size) return;
-    if (!this.running && this.timer !== undefined) {
-      clearTimeout(this.timer);
-      this.timer = undefined;
-    }
-    const all = Array.from(this.pending);
-    const jobs = [];
+    if (this.paused || Date.now() < this.retryAt) return;
+    const all = this.available();
     while (all.length) {
       const rows = this.take(all);
-      jobs.push(
-        this.deliver(rows).catch((error) => {
-          if (error.code !== "network" && error.code !== "timeout") return;
-          try {
-            window.navigator.sendBeacon(
-              this.config.endpoint,
-              payload(this.config.key, rows)
-            );
-          } catch {
-            /* The outbox retains unacknowledged rows. */
+      rows.forEach((item) => this.unloading.add(item));
+      void this.deliver(rows, true)
+        .catch((error) => {
+          if (error.code === "network" || error.code === "timeout") {
+            try {
+              window.navigator.sendBeacon(
+                this.config.endpoint,
+                payload(this.config.key, rows)
+              );
+            } catch {
+              /* Keep the rows until an acknowledgement arrives. */
+            }
           }
+          this.retry(this.delay(error));
         })
-      );
+        .finally(() => {
+          rows.forEach((item) => this.unloading.delete(item));
+          if (
+            !this.running &&
+            !this.paused &&
+            this.pending.size &&
+            this.timer === undefined
+          )
+            void this.drain();
+        });
     }
-    this.unloading = Promise.all(jobs).then(() => {
-      this.unloading = undefined;
-      if (
-        !this.paused &&
-        !this.running &&
-        this.pending.size &&
-        this.timer === undefined
-      )
-        this.schedule(this.ceiling);
-    });
   }
 
   flush(): Promise<void> {
