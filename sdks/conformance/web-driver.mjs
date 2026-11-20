@@ -59,8 +59,10 @@ export class WebDriver {
     }};
     Object.assign(window, {navigator, fetch: send, location: new URL("https://example.test/")});
     const module = {exports:{}};
+    let sample = 0;
     const context = {
       module, crypto, URL, Blob, TextEncoder, AbortController, Date: ClockDate,
+      nextJitter: () => this.config.jitter?.[sample++] ?? 0.5,
       setTimeout: (fn, ms) => {
         const id = ++nextId;
         timers.set(id, {fn, time:this.now + ms});
@@ -69,7 +71,7 @@ export class WebDriver {
       clearTimeout: id => timers.delete(id),
     };
     if (this.config.browser) Object.assign(context, {window,document,navigator,localStorage:window.localStorage});
-    runInNewContext("Math.random = () => 0.5;\n" + bundle, context);
+    runInNewContext("Math.random = nextJitter;\n" + bundle, context);
     const factory = this.config.browser ? module.exports.createBrowserClient : module.exports.createServerClient;
     this.client = factory({
       host: this.collector.host, writeKey:"test", batchSize:100, flushIntervalMs:60000,
@@ -80,9 +82,11 @@ export class WebDriver {
   }
 
   capture(id) {
+    const name = this.config.generatedIds ? id : "example";
+    const options = this.config.generatedIds ? {} : {id};
     const result = this.config.browser
-      ? this.client.capture("example", {}, {id})
-      : this.client.capture({event:"example",distinctId:"test",id});
+      ? this.client.capture(name, {}, options)
+      : this.client.capture({event:name,distinctId:"test",...options});
     void result.catch(() => {});
   }
 

@@ -1,5 +1,6 @@
 {
   "rule": "Keep retrying 503 responses with full jitter up to the doubling backoff ceiling.",
+  "config": {"jitter":[0.25, 0.75, 0.5]},
   "collector": [
     {
       "status": 503,
@@ -34,6 +35,6 @@
     "stored": ["a"],
     "outbox": [],
     "errors": 0,
-    "retryDelaysMs": [500, 1000, 2000]
+    "retryDelaysMs": [250, 1500, 2000]
   }
 }

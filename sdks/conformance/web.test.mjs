@@ -7,7 +7,7 @@ import { WebDriver } from "./web-driver.mjs";
 
 const scenarios = new URL("./scenarios/", import.meta.url);
 const gaps = JSON.parse(await readFile(new URL("./web-gaps.json", import.meta.url)));
-const ids = body => (body.batch ?? []).map(event => event.uuid);
+
 
 async function run(scenario) {
   const collector = await startCollector(scenario.collector);
@@ -15,9 +15,17 @@ async function run(scenario) {
     const driver = new WebDriver(collector, scenario.config);
     for (const step of scenario.steps) await driver.step(step);
     const {expect} = scenario;
+    const aliases = new Map();
+    if (scenario.config?.generatedIds) {
+      for (const batch of collector.requests) {
+        for (const event of batch?.batch ?? []) aliases.set(event.uuid,event.event);
+      }
+    }
+    const label = id => aliases.get(id) ?? id;
+    const ids = body => Array.isArray(body?.batch) ? body.batch.map(event => label(event?.uuid)) : [];
     const actual = {
       requests: collector.requests.map(ids),
-      stored: [...collector.stored],
+      stored: [...collector.stored].map(label),
     };
     if ("errors" in expect) actual.errors = driver.errors.length;
     if ("duplicates" in expect) actual.duplicates = collector.duplicates;
@@ -33,8 +41,12 @@ async function run(scenario) {
       const sent = Date.parse(body?.sent_at);
       actual.clockAgeMs = sent === driver.requests[0]?.sent ? sent - Date.parse(body.batch[0].timestamp) : null;
     }
+    if ("freshSendTimes" in expect) {
+      actual.freshSendTimes = collector.requests.every((body, i) => Date.parse(body.sent_at) === driver.requests[i]?.sent);
+    }
     if ("quarantined" in expect) {
-      actual.quarantined = [...driver.storage].some(([k,v]) => k !== driver.corruptKey && v === "{corrupt fixture");
+      actual.quarantined = driver.storage.get(driver.corruptKey) !== "{corrupt fixture" &&
+        [...driver.storage].some(([k,v]) => k !== driver.corruptKey && v.includes("{corrupt fixture"));
     }
     if ("unloadDelivery" in expect) actual.unloadDelivery = driver.unloadDelivery;
 

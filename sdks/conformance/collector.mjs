@@ -9,6 +9,8 @@ export async function startCollector(answers) {
   let duplicates = 0;
   let probe = false;
   const server = createServer(async (req, res) => {
+    const position = requests.length;
+    requests.push({batch:[]}); // Invalid traffic still consumes a request slot.
     if (req.method !== "POST" || req.url !== "/api/capture") {
       res.writeHead(404).end();
       return;
@@ -22,14 +24,18 @@ export async function startCollector(answers) {
       res.writeHead(400).end();
       return;
     }
-    const answer = probe ? "ack" : answers[requests.length];
-    requests.push(body);
+    const answer = probe ? "ack" : answers[position];
+    requests[position] = body;
     const json = (status, value, headers = {}) => {
       res.writeHead(status, { "Content-Type": "application/json", ...headers });
       res.end(JSON.stringify(value));
     };
-    if (!Array.isArray(body?.batch) || !body.batch.every(event => typeof event?.uuid === "string")) {
-      json(400, {code:"invalid_event", error:"Expected a batch of events with UUIDs."});
+    if (body?.api_key !== "test" || !Array.isArray(body.batch) || !body.batch.length ||
+        !body.batch.every(event => typeof event?.uuid === "string" && event.uuid.length &&
+          typeof event.event === "string" && event.event.trim() &&
+          typeof event.distinct_id === "string" && event.distinct_id.trim() &&
+          typeof event.timestamp === "string" && Number.isFinite(Date.parse(event.timestamp)))) {
+      json(400, {code:"invalid_event", error:"Expected the scenario write key and valid SDK events."});
       return;
     }
     if (!answer) {

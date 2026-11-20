@@ -1,5 +1,6 @@
 {
   "rule": "Retry a lost acknowledgement with unchanged UUIDs and timestamps. A duplicate is a success.",
+  "config": {"generatedIds":true},
   "collector": ["loseAck", "ack"],
   "steps": [
     {
