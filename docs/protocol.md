@@ -211,3 +211,8 @@ segment. The response `{"removed":2}` counts events removed from the project's
 totals, including previously expired contributions. Repeating the request returns
 zero. Both operations use dashboard owner access and reject changes to the sample
 project with HTTP 403.
+
+If raw events have expired on the final UTC day of the previous overview period,
+the comparison includes that entire day. The response identifies its date in
+`previous_full_day` (YYYY-MM-DD), and the dashboard labels it. Comparisons
+with complete raw timestamps keep their elapsed-time boundary.

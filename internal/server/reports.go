@@ -322,6 +322,18 @@ func (q report) overview(end time.Time) (any, error) {
 	for i, field := range []string{"current", "previous"} {
 		shift := -i * q.days
 		start, stop := q.start.AddDate(0, 0, shift), end.AddDate(0, 0, shift)
+		if field == "previous" {
+			var archived bool
+			day := stop.Format(time.DateOnly)
+			if err := q.db.QueryRow("SELECT EXISTS(SELECT 1 FROM expired_counts WHERE project_id=? AND day=?)", q.id, day).Scan(&archived); err != nil {
+				return nil, err
+			}
+			if archived {
+				// The archived day no longer has raw timestamps for a partial cutoff.
+				stop = stop.Truncate(24*time.Hour).AddDate(0, 0, 1).Add(-time.Microsecond)
+				result["previous_full_day"] = day
+			}
+		}
 		counts, args, partial, err := q.eventDays(start, stop)
 		if err != nil {
 			return nil, err

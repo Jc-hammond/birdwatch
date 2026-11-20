@@ -17,6 +17,7 @@ CREATE TABLE expired_counts (
  event TEXT NOT NULL, n INTEGER NOT NULL, first_ts TEXT NOT NULL, last_ts TEXT NOT NULL,
  PRIMARY KEY(project_id,distinct_id,day,event)
 ) WITHOUT ROWID;
+CREATE INDEX expired_counts_day ON expired_counts(project_id,day);
 CREATE TABLE expired_receipts (
  project_id INTEGER NOT NULL REFERENCES projects(id), digest BLOB NOT NULL, distinct_id TEXT NOT NULL,
  PRIMARY KEY(project_id,digest)

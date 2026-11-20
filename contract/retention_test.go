@@ -26,7 +26,18 @@ func TestProjectRetention(t *testing.T) {
 	for i := 0; i < 32; i++ {
 		batch = append(batch, object{"event": "old", "distinct_id": "guest" + strconv.Itoa(i), "timestamp": time.Now().UTC().AddDate(0, 0, -3)})
 	}
+	boundary := time.Now().UTC().AddDate(0, 0, -7).Truncate(24 * time.Hour)
+	for _, ts := range []time.Time{boundary, boundary.Add(24*time.Hour - time.Microsecond)} {
+		batch = append(batch, object{"event": "comparison", "distinct_id": "comparison", "timestamp": ts})
+	}
 	s.capture(t, paged, object{"batch": batch}, 200)
+	type comparison struct {
+		Previous []float64
+		FullDay  string `json:"previous_full_day"`
+	}
+	beforeExpiry := decode[comparison](t, s.report(t, paged, "overview?days=7"))
+	check(t, "exact previous period", beforeExpiry.Previous[0], float64(1))
+	check(t, "exact comparison label", beforeExpiry.FullDay, "")
 	s.expect(t, 200, "PATCH", "/api/projects/"+strconv.Itoa(paged.id), object{"retention_days": 1}, nil)
 	s.stop()
 	s = start(t, path, false, "") // Startup runs the same sweep as the hourly timer.
@@ -45,6 +56,9 @@ func TestProjectRetention(t *testing.T) {
 	check(t, "unlimited", decode[object](t, s.report(t, p, "setup"))["retention_days"], nil)
 	s.expect(t, 200, "DELETE", base+"/people/subscriber", nil, nil)
 	check(t, "erased archived contributions", s.overview(t, p, 7).Current[0], float64(0))
+	afterExpiry := decode[comparison](t, s.report(t, paged, "overview?days=7"))
+	check(t, "whole previous UTC day", afterExpiry.Previous[0], float64(2))
+	check(t, "archived comparison label", afterExpiry.FullDay, boundary.Format(time.DateOnly))
 	first := decode[struct{ Next string }](t, s.report(t, paged, "people"))
 	if first.Next == "" {
 		t.Fatal("missing cursor for archived people")
