@@ -60,6 +60,14 @@ final class Outbox: @unchecked Sendable {
     }
     db = opened
     sqlite3_busy_timeout(db, 5000)
+    if file != nil {
+      try statement("PRAGMA integrity_check(1)", []) { stmt in
+        guard sqlite3_step(stmt) == SQLITE_ROW else { throw failure() }
+        guard let message = sqlite3_column_text(stmt, 0), String(cString: message) == "ok" else {
+          throw SQLiteCorruption.unreadable
+        }
+      }
+    }
     try execute(
       "CREATE TABLE IF NOT EXISTS outbox_v1 (seq INTEGER PRIMARY KEY AUTOINCREMENT, scope TEXT NOT NULL, uuid TEXT NOT NULL, body TEXT NOT NULL, UNIQUE(scope, uuid))"
     )

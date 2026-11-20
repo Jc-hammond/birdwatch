@@ -78,7 +78,7 @@ public actor BirdwatchClient {
   private let persistenceKey: String?
   private let outbox: Outbox
   private let environment: DeliveryEnvironment
-  private let onError: ErrorHandler?
+  private var errorHandler: ErrorHandler?
   private let monitor = NWPathMonitor()
   private var observer: NSObjectProtocol?
   private var timer: Task<Void, Never>?
@@ -87,6 +87,8 @@ public actor BirdwatchClient {
   private var ceiling = 1.0
   private var notBefore = Date.distantPast
   private var paused = false
+  private var closing = false
+  private var retryThrough: Int64?
   private var closed = false
   private var overflow = false
   private(set) var due: Date?
@@ -115,7 +117,7 @@ public actor BirdwatchClient {
     else { throw BirdwatchError.invalidInput("host or timeout") }
     endpoint = host.appendingPathComponent("api/capture")
     self.writeKey = try checked(writeKey, 128, "writeKey")
-    self.onError = onError
+    self.errorHandler = onError
     self.environment = environment
     let config = URLSessionConfiguration.ephemeral
     config.httpShouldSetCookies = false
@@ -152,7 +154,7 @@ public actor BirdwatchClient {
       distinctId = UUID().uuidString
       if let key = persistenceKey { UserDefaults.standard.set(distinctId, forKey: key) }
     }
-    if recovered { onError?(.storage("Corrupt outbox was moved aside.")) }
+    if recovered { errorHandler?(.storage("Corrupt outbox was moved aside.")) }
     if environment.automatic { startReplay() }
   }
 
@@ -217,7 +219,13 @@ public actor BirdwatchClient {
     _ name: String, properties: [String: JSONValue] = [:],
     id: String = UUID().uuidString, timestamp: Date? = nil
   ) async throws -> String {
-    guard !closed else { throw BirdwatchError.closed }
+    try await stage(name, properties: properties, id: id, timestamp: timestamp).id
+  }
+
+  private func stage(_ name: String, properties: [String: JSONValue], id: String, timestamp: Date?)
+    async throws -> StoredEvent
+  {
+    guard !closing && !closed else { throw BirdwatchError.closed }
     let row: Data
     do {
       let encoded = try JSONEncoder().encode(properties)
@@ -234,18 +242,21 @@ public actor BirdwatchClient {
     } catch {
       let failure =
         error as? BirdwatchError ?? .invalidInput("properties must contain finite JSON values")
-      onError?(failure)
+      errorHandler?(failure)
       throw failure
     }
-    let (_, dropped) = try await Outbox.perform { [outbox] in try outbox.put(id: id, body: row) }
+    let (stored, dropped) = try await Outbox.perform { [outbox] in try outbox.put(id: id, body: row)
+    }
     for item in dropped { finish(item.id, with: .failure(BirdwatchError.queueFull)) }
     if !dropped.isEmpty && !overflow {
-      onError?(.queueFull)
+      errorHandler?(.queueFull)
       overflow = true
     }
     schedule(after: environment.flushDelay)
-    return id
+    return stored
   }
+
+  public func onError(_ handler: @escaping ErrorHandler) { errorHandler = handler }
 
   @discardableResult
   public func capture(
@@ -257,8 +268,13 @@ public actor BirdwatchClient {
       waiters[id, default: [:]][token] = continuation
       Task {
         do {
-          _ = try await enqueue(name, properties: properties, id: id, timestamp: timestamp)
+          let row = try await stage(name, properties: properties, id: id, timestamp: timestamp)
           try await flush()
+          if waiters[id]?[token] != nil {
+            // A second client can acknowledge and remove this SQLite row first.
+            // Replaying its original UUID obtains a receipt for this caller.
+            _ = try await transmit([row])
+          }
         } catch {
           waiters[id]?.removeValue(forKey: token)?.resume(throwing: error)
           if waiters[id]?.isEmpty == true { waiters[id] = nil }
@@ -300,8 +316,31 @@ public actor BirdwatchClient {
   }
 
   private func sendPage(through limit: Int64) async throws -> Bool {
-    let page = try await Outbox.perform { [outbox] in try outbox.page(through: limit) }
-    guard !page.isEmpty else { return false }
+    let bound = min(limit, retryThrough ?? limit)
+    let page: [StoredEvent]
+    do { page = try await Outbox.perform { [outbox] in try outbox.page(through: bound) } } catch {
+      scheduleRetry(after: nil)
+      throw error
+    }
+    if page.isEmpty {
+      if retryThrough != nil {
+        retryThrough = nil
+        return true
+      }
+      return false
+    }
+    return try await transmit(page)
+  }
+
+  private func scheduleRetry(after override: Double?) {
+    guard !paused && !closed else { return }
+    let delay = override ?? ceiling * environment.jitter()
+    ceiling = min(60, ceiling * 2)
+    notBefore = max(notBefore, environment.now().addingTimeInterval(delay))
+    schedule(after: 0)
+  }
+
+  private func transmit(_ page: [StoredEvent]) async throws -> Bool {
     let clock = ISO8601DateFormatter()
     clock.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     var body = Data("{\"sent_at\":\"\(clock.string(from:environment.now()))\",\"api_key\":".utf8)
@@ -314,8 +353,14 @@ public actor BirdwatchClient {
       body.append(row.body)
       rows.append(row)
     }
-    guard !rows.isEmpty else {
-      throw BirdwatchError.storage("Outbox row exceeds the request limit.")
+    if rows.isEmpty {
+      // Earlier SDKs accepted single rows as large as the entire envelope.
+      let row = page[0]
+      let removed = try await Outbox.perform { [outbox] in try outbox.remove([row]) }
+      let error = BirdwatchError.http(413)
+      finish(row.id, with: .failure(error))
+      if !removed.isEmpty { errorHandler?(error) }
+      return true
     }
     body.append(contentsOf: [93, 125])
     var request = URLRequest(url: endpoint)
@@ -323,6 +368,7 @@ public actor BirdwatchClient {
     request.httpBody = body
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     var retryAfter: Double?
+    var batchError: BirdwatchError?
     let outcomes: [Result<Receipt, Error>]
     do {
       let pair: (Data, URLResponse)
@@ -369,12 +415,13 @@ public actor BirdwatchClient {
         let code = (try? JSONDecoder().decode(ServerError.self, from: pair.0))?.code
         if status < 500 && status != 408 && status != 429 {
           if code == "unknown_key" {
-            if !paused { onError?(.http(status)) }
+            if !paused { errorHandler?(.http(status)) }
             paused = true
             due = nil
             timer?.cancel()
           }
           if code == "invalid_event" || code == "too_large" {
+            batchError = .http(status)
             outcomes = rows.map { _ in .failure(BirdwatchError.http(status)) }
           } else {
             throw BirdwatchError.http(status)
@@ -384,28 +431,32 @@ public actor BirdwatchClient {
         }
       }
     } catch {
-      if !paused && !closed {
-        let wait = retryAfter ?? ceiling * environment.jitter()
-        ceiling = min(60, ceiling * 2)
-        notBefore = max(notBefore, environment.now().addingTimeInterval(wait))
-        schedule(after: 0)
-      }
+      retryThrough = rows.last?.sequence
+      scheduleRetry(after: retryAfter)
       throw error
     }
     let batch = rows
-    let removed = try await Outbox.perform { [outbox] in try outbox.remove(batch) }
-    for (row, result) in zip(rows, outcomes) where removed.contains(row.sequence) {
+    let removed: Set<Int64>
+    do { removed = try await Outbox.perform { [outbox] in try outbox.remove(batch) } } catch {
+      retryThrough = rows.last?.sequence
+      scheduleRetry(after: nil)
+      throw error
+    }
+    retryThrough = nil
+    for (row, result) in zip(rows, outcomes) {
       finish(row.id, with: result)
-      if case .failure(let error) = result {
-        onError?(error as? BirdwatchError ?? .invalidAcknowledgement)
+      if batchError == nil, removed.contains(row.sequence), case .failure(let error) = result {
+        errorHandler?(error as? BirdwatchError ?? .invalidAcknowledgement)
       }
     }
+    if let batchError, !removed.isEmpty { errorHandler?(batchError) }
     ceiling = 1
     overflow = false
     return true
   }
 
   public func close() async throws {
+    closing = true
     defer {
       closed = true
       timer?.cancel()
