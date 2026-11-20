@@ -94,6 +94,9 @@ func TestIngestionPersistenceAndReports(t *testing.T) {
 	if os.Getenv("BIRDWATCH_REFERENCE") == "go" {
 		rows := s.captureRows(t, p)
 		check(t, "stored after reopening", len(rows), 3)
+		if len(rows) > 0 {
+			check(t, "first copy after reopening", rows[0].Properties["screen"], "welcome")
+		}
 		check(t, "second project", len(s.captureRows(t, other)), 0)
 		return // BIR-14 enables the report assertions below for Go.
 	}
@@ -251,7 +254,7 @@ func TestAuthenticatedProjectReadsAndPublicCapture(t *testing.T) {
 	const password = "sample-test-password"
 	s = start(t, db, false, password)
 	auth := "Basic " + base64.StdEncoding.EncodeToString([]byte("admin:"+password))
-	r := s.expect(t, 200, "GET", "/api/projects", nil, http.Header{"Authorization": {auth}})
+	r := s.expect(t, 200, "GET", projectPath(p.id, "setup"), nil, http.Header{"Authorization": {auth}})
 	if r.header.Get("Access-Control-Allow-Origin") != "" {
 		t.Error("private API returned a cross-origin access header")
 	}

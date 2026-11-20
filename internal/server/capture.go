@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -19,10 +20,22 @@ import (
 
 type fields = map[string]json.RawMessage
 
-func readObject(r *http.Request) (fields, error) {
-	data, err := io.ReadAll(r.Body)
+func readBody(r io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(r)
+	var large *http.MaxBytesError
+	if errors.As(err, &large) {
+		return nil, tooLargeError
+	}
 	if err != nil {
-		return nil, invalid("Could not read the request. Send a complete JSON object.")
+		return nil, failure{503, "unavailable", "Could not finish reading the request. Retry in one second."}
+	}
+	return data, nil
+}
+
+func readObject(r *http.Request) (fields, error) {
+	data, err := readBody(r.Body)
+	if err != nil {
+		return nil, err
 	}
 	var value fields
 	if !utf8.Valid(data) || json.Unmarshal(data, &value) != nil || value == nil {
@@ -33,9 +46,37 @@ func readObject(r *http.Request) (fields, error) {
 
 func invalid(message string) failure { return failure{400, "invalid_event", message} }
 
+// encoding/json replaces unpaired UTF-16 surrogates. Reject them before they
+// can collapse two distinct event identities to the same replacement character.
+func pairedEscapes(raw []byte) bool {
+	for i := 0; i+1 < len(raw); i++ {
+		if raw[i] != '\\' {
+			continue
+		}
+		i++
+		if raw[i] != 'u' {
+			continue
+		}
+		unit, _ := strconv.ParseUint(string(raw[i+1:i+5]), 16, 16)
+		i += 4
+		if unit < 0xd800 || unit > 0xdfff {
+			continue
+		}
+		if unit >= 0xdc00 || i+6 >= len(raw) || string(raw[i+1:i+3]) != "\\u" {
+			return false
+		}
+		low, _ := strconv.ParseUint(string(raw[i+3:i+7]), 16, 16)
+		if low < 0xdc00 || low > 0xdfff {
+			return false
+		}
+		i += 6
+	}
+	return true
+}
+
 func stringField(raw json.RawMessage, name string, limit int) (string, error) {
 	var value string
-	if json.Unmarshal(raw, &value) != nil || strings.TrimSpace(value) == "" || strings.ContainsRune(value, 0) || utf8.RuneCountInString(value) > limit {
+	if json.Unmarshal(raw, &value) != nil || !pairedEscapes(raw) || strings.TrimSpace(value) == "" || strings.ContainsRune(value, 0) || utf8.RuneCountInString(value) > limit {
 		return "", invalid(fmt.Sprintf("%s must be a nonblank string of at most %d characters without NUL.", name, limit))
 	}
 	return value, nil
@@ -73,7 +114,6 @@ func (s *Server) setup(r *http.Request) (any, error) {
 	return map[string]any{"id": id, "name": name, "created_at": created, "write_key": key, "sample_as_of": asOf}, err
 }
 
-type receiptTime struct{}
 type rejection struct {
 	Index   int    `json:"index"`
 	Code    string `json:"code"`
@@ -90,16 +130,19 @@ func clockValue(raw json.RawMessage) (time.Time, bool) {
 	if json.Unmarshal(raw, &text) != nil || len(text) > 64 {
 		return time.Time{}, false
 	}
-	for _, layout := range []string{time.RFC3339Nano, "2006-01-02T15:04:05Z0700", "2006-01-02T15:04:05Z07"} {
-		if t, err := time.Parse(layout, strings.Replace(text, " ", "T", 1)); err == nil {
-			return t.UTC(), true
+	text = strings.Replace(text, " ", "T", 1)
+	for _, precision := range []string{"15:04:05", "15:04", "15", "150405", "1504"} {
+		for _, zone := range []string{"Z07:00", "Z0700", "Z07"} {
+			if t, err := time.Parse("2006-01-02T"+precision+zone, text); err == nil {
+				return t.UTC(), true
+			}
 		}
 	}
 	return time.Time{}, false
 }
 
 func (s *Server) capture(r *http.Request) (any, error) {
-	received := r.Context().Value(receiptTime{}).(time.Time)
+	received := time.Now().UTC()
 	body, err := readObject(r)
 	if err != nil {
 		return nil, err
@@ -121,6 +164,7 @@ func (s *Server) capture(r *http.Request) (any, error) {
 	}
 	sent, hasSent := clockValue(body["sent_at"])
 	ack := acknowledgement{Rejected: []rejection{}}
+	rollback := errors.New("atomic batch rejected")
 	err = s.db.Write(r.Context(), func(ctx context.Context, tx *sql.Tx) error {
 		var project int64
 		err := tx.QueryRowContext(ctx, "SELECT id FROM projects WHERE write_key=?", key).Scan(&project)
@@ -150,18 +194,12 @@ func (s *Server) capture(r *http.Request) (any, error) {
 			}
 		}
 		if atomic && len(ack.Rejected) > 0 {
-			return invalid("Correct the rejected events and resend. No events were stored.")
+			return rollback
 		}
 		return nil
 	})
-	if err != nil && atomic && len(ack.Rejected) > 0 {
-		var f failure
-		if errors.As(err, &f) && f.Code == "invalid_event" {
-			return httpResult{400, struct {
-				failure
-				Rejected []rejection `json:"rejected"`
-			}{f, ack.Rejected}}, nil
-		}
+	if err == rollback {
+		return httpResult{400, map[string]any{"code": "invalid_event", "error": "Correct the rejected events and resend. No events were stored.", "rejected": ack.Rejected}}, nil
 	}
 	return ack, err
 }
@@ -193,9 +231,7 @@ func storeEvent(ctx context.Context, tx *sql.Tx, project int64, item fields, rec
 			return false, invalid("Send properties as a JSON object.")
 		}
 		var compact bytes.Buffer
-		if err := json.Compact(&compact, raw); err != nil {
-			return false, invalid("Send valid JSON properties.")
-		}
+		_ = json.Compact(&compact, raw) // RawMessage comes from validated JSON.
 		if compact.Len() > 32768 {
 			return false, failure{413, "too_large", "Limit compact properties to 32 KiB."}
 		}

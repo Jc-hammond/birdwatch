@@ -1,15 +1,12 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"github.com/Jc-hammond/birdwatch/internal/storage"
 	"github.com/ncruces/go-sqlite3"
-	"io"
 	"log"
-	"net"
 	"net/http"
 	"runtime/debug"
 	"strconv"
@@ -85,21 +82,13 @@ func resolve(w http.ResponseWriter, r *http.Request, methods map[string]endpoint
 		return nil, tooLargeError
 	}
 	if r.ContentLength < 0 {
-		// A chunked request has no declared size. Verify it before the handler can act.
-		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
-		if err != nil {
-			var tooLarge *http.MaxBytesError
-			if errors.As(err, &tooLarge) {
-				return nil, tooLargeError
+		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+		// POST handlers finish reading before opening a transaction.
+		if r.Method != http.MethodPost {
+			if _, err := readBody(r.Body); err != nil {
+				return nil, err
 			}
-			var netErr net.Error
-			if errors.As(err, &netErr) && netErr.Timeout() {
-				w.Header().Set("Retry-After", "1")
-				return nil, failure{503, "unavailable", "Request body timed out. Retry in one second."}
-			}
-			return nil, failure{400, "invalid_event", "Could not read the request body."}
 		}
-		r.Body = io.NopCloser(bytes.NewReader(body))
 	}
 	return fn, nil
 }
@@ -116,9 +105,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	methods := s.routes[route]
-	if route == "/api/capture" {
-		r = r.WithContext(context.WithValue(r.Context(), receiptTime{}, start.UTC()))
-	}
 	asset := dashboard.Lookup(r.URL.Path)
 	if asset != nil {
 		pattern = "dashboard"

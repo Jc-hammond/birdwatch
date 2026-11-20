@@ -45,11 +45,10 @@ var pythonGaps = map[string]string{
 
 // Remove each entry as its endpoints land. An unlisted case always runs.
 var goGaps = map[string]string{
-	"TestSameTimeOrderAndRepeatedFunnelSteps":       "funnel reports are not ported",
-	"TestUTCDayWindow":                              "overview reports are not ported",
-	"TestSearchAndPagination":                       "event and people reports are not ported",
-	"TestAuthenticatedProjectReadsAndPublicCapture": "project creation, reads and capture are not ported",
-	"TestDemoProjectIsSeparateAndFrozen":            "the demo project is not ported",
+	"TestSameTimeOrderAndRepeatedFunnelSteps": "funnel reports are not ported",
+	"TestUTCDayWindow":                        "overview reports are not ported",
+	"TestSearchAndPagination":                 "event and people reports are not ported",
+	"TestDemoProjectIsSeparateAndFrozen":      "the demo project is not ported",
 }
 
 func start(t *testing.T, db string, demo bool, password string) server {

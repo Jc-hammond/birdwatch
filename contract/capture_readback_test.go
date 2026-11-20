@@ -2,6 +2,7 @@ package contract_test
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -27,7 +28,7 @@ func (s server) captureRows(t *testing.T, p project) []capturedEvent {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	rows, err := db.Query("SELECT event,distinct_id,timestamp FROM events WHERE project_id=? ORDER BY id", p.id)
+	rows, err := db.Query("SELECT event,distinct_id,timestamp,properties FROM events WHERE project_id=? ORDER BY id", p.id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +37,11 @@ func (s server) captureRows(t *testing.T, p project) []capturedEvent {
 	for rows.Next() {
 		var event capturedEvent
 		var stamp string
-		if err := rows.Scan(&event.Event, &event.Person, &stamp); err != nil {
+		var props []byte
+		if err := rows.Scan(&event.Event, &event.Person, &stamp, &props); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(props, &event.Properties); err != nil {
 			t.Fatal(err)
 		}
 		event.Timestamp, err = time.Parse(time.RFC3339Nano, stamp)
@@ -52,7 +57,8 @@ func (s server) captureRows(t *testing.T, p project) []capturedEvent {
 }
 
 type capturedEvent struct {
-	Event     string
-	Person    string `json:"distinct_id"`
-	Timestamp time.Time
+	Properties map[string]any
+	Event      string
+	Person     string `json:"distinct_id"`
+	Timestamp  time.Time
 }
