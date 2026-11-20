@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"runtime/debug"
 	"time"
+
+	"github.com/Jc-hammond/birdwatch/internal/dashboard"
 )
 
 const maxBody = 1 << 20
@@ -81,6 +83,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	pattern := "unmatched"
 	methods := s.routes[r.URL.Path]
+	asset := dashboard.Lookup(r.URL.Path)
+	if asset != nil {
+		pattern = "dashboard"
+	}
 	if methods != nil {
 		// Only exact, registered paths reach the log.
 		pattern = r.URL.Path
@@ -100,6 +106,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.Header().Set("Retry-After", "1")
 		status = writeJSON(w, 503, failure{503, "unavailable", "Server is busy. Retry in one second."})
+		return
+	}
+	if asset != nil {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			status = writeJSON(w, 405, failure{405, "method_not_allowed", "Use GET or HEAD for dashboard files."})
+			return
+		}
+		status = asset.Serve(w, r)
 		return
 	}
 	body, err := handle(w, r, methods)

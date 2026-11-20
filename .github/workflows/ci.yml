@@ -28,7 +28,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Build from source, lint and test the server
-        run: make build && make lint && make test-server && make check-clean
+        run: make build lint test-server check-clean
 
   javascript:
     runs-on: ubuntu-latest

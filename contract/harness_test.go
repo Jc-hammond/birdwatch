@@ -26,6 +26,7 @@ type server struct {
 // These cases run by default, including against the Go server. Only the Python
 // reference run skips them; keep shared behaviour covered in both modes.
 var pythonGaps = map[string]string{
+	"TestDashboardAssets":                  "dashboard lacks ETags and build-time gzip",
 	"TestConcurrentCapture":                "concurrent writes lose events",
 	"TestCaptureErrors/invalid_event":      "capture errors lack a code",
 	"TestCaptureErrors/unknown_key":        "capture errors lack a code",
