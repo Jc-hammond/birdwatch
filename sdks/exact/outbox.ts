@@ -110,10 +110,10 @@ export function exactOutbox(scope: string, capacity: number, overhead: number,
       return encoded.id;
     });
   }
-  async function replay(db: Database, at: number, background: boolean, bound?: string): Promise<typeof empty> {
+  async function replay(db: Database, clock: () => number | Promise<number>, background: boolean, bound: string): Promise<typeof empty | undefined> {
     const started = generation;
-    const { rows } = await db.query("SELECT seq,uuid,event FROM events_v1 WHERE scope=?" +
-      (bound ? " AND seq<=?" : "") + " ORDER BY seq LIMIT 100", bound ? [scope, bound] : [scope]);
+    const { rows } = await db.query("SELECT seq,uuid,event FROM events_v1 WHERE scope=? AND seq<=? ORDER BY seq LIMIT 100", [scope, bound]);
+    if (!rows.length) return;
     const events: EncodedEvent[] = [], sequences: string[] = [];
     let bytes = overhead, damaged = false;
     for (const [seq, uuid, raw] of rows) {
@@ -136,6 +136,8 @@ export function exactOutbox(scope: string, capacity: number, overhead: number,
     if (!events.length) return empty;
     const deletes = sequences.map(seq => ({ sql: "DELETE FROM events_v1 WHERE scope=? AND seq=?", params: [scope, seq] }));
     let result: Awaited<ReturnType<typeof send>>;
+    const at = await clock();
+    if (!Number.isFinite(at)) invalid("Pass epoch milliseconds from Contract.");
     try { result = await deliver(events, at, background); }
     catch (error) {
       if (error instanceof DeliveryFailure && error.outcome === "drop") {
@@ -163,14 +165,25 @@ export function exactOutbox(scope: string, capacity: number, overhead: number,
     if (started === generation) failures = 0;
     return { ...empty, ...result.counts };
   }
-  function flush(storage: ExactStorage, at: number, background = false, retryToken = 0): Promise<typeof empty> {
-    if (!Number.isFinite(at)) invalid("Pass epoch milliseconds from Contract.");
+  function flush(storage: ExactStorage, clock: () => number | Promise<number>, background = false, retryToken = 0): Promise<typeof empty> {
     if (paused || waiting !== retryToken) return Promise.resolve(empty);
     if (!background && !retryToken && running) return running;
     const bound = retryThrough;
     retryThrough = undefined;
     waiting = wait = retryAt = 0;
-    const work = use(storage, report, db => replay(db, at, background, bound));
+    const work = use(storage, report, async db => {
+      const last = bound ?? (await db.query("SELECT max(seq) FROM events_v1 WHERE scope=?", [scope])).rows[0]?.[0];
+      const total = { ...empty };
+      if (last == null) return total;
+      do {
+        const result = await replay(db, clock, background, String(last));
+        if (!result) break;
+        total.accepted += result.accepted;
+        total.duplicates += result.duplicates;
+        if (result.retryToken) return { ...result, accepted: total.accepted, duplicates: total.duplicates };
+      } while (!background && !paused && !waiting);
+      return total;
+    });
     if (background) return work;
     const active = work.finally(() => { if (running === active) running = undefined; });
     running = active;

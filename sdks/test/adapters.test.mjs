@@ -20,6 +20,6 @@ test("Exact passes the host deadline and scoped network grant to the collector",
   t.after(() => fixture.close());
   const ctx = { storage: fixture.storage, at: Date.UTC(2026, 0, 1) };
   await client.capture(ctx, "example", {}, { id: "one" });
-  await client.flush(ctx);
+  await client.flush({ storage: ctx.storage, sendTime: () => ctx.at });
   assert.equal(calls, 1);
 });

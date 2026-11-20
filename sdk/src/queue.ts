@@ -22,6 +22,7 @@ export class DeliveryQueue {
   private retryRows: Pending[] = [];
   private paused?: BirdwatchError;
   private readonly unloading = new Set<Pending>();
+  private readonly hiddenSends = new Set<Promise<void>>();
   private retryAt = 0;
   private overflow = false;
   private failures = 0;
@@ -181,7 +182,11 @@ export class DeliveryQueue {
       this.retry(0);
       return Promise.resolve();
     }
-    this.running = this.sendPending().finally(() => { this.running = undefined; });
+    this.running = this.sendPending().finally(() => {
+      this.running = undefined;
+      if (!this.closing && !this.paused && this.timer === undefined && this.available().length)
+        this.schedule(Math.max(0, this.retryAt - Date.now()));
+    });
     return this.running;
   }
 
@@ -204,12 +209,12 @@ export class DeliveryQueue {
   }
 
   unload() {
-    if (this.paused || Date.now() < this.retryAt) return;
+    if (this.closing || this.paused || Date.now() < this.retryAt) return;
     const all = this.available();
     while (all.length) {
       const rows = this.take(all);
       rows.forEach((item) => this.unloading.add(item));
-      void this.deliver(rows, true)
+      const flight = this.deliver(rows, true)
         .catch((error) => {
           if (error.code === "network" || error.code === "timeout") {
             try {
@@ -224,24 +229,26 @@ export class DeliveryQueue {
           this.retry(retryDelay(error, this.failures++));
         })
         .finally(() => {
+          this.hiddenSends.delete(flight);
           rows.forEach((item) => this.unloading.delete(item));
           if (
-            !this.running &&
+            !this.closing && !this.running &&
             !this.paused &&
             this.pending.size &&
             this.timer === undefined
           )
             void this.drain();
         });
+      this.hiddenSends.add(flight);
     }
   }
 
   flush(): Promise<void> {
-    return this.closing ?? this.drain();
+    return this.closing ?? Promise.all([this.drain(), ...this.hiddenSends]).then(() => {});
   }
   close(): Promise<void> {
     if (!this.closing) {
-      this.closing = this.drain().then(() => {
+      this.closing = this.flush().then(() => {
         clearTimeout(this.timer);
         const error = this.paused ?? new BirdwatchError("closed", "Delivery stopped before acknowledgement.");
         for (const row of this.pending) row.reject(error);

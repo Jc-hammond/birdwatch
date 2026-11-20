@@ -11,6 +11,7 @@ import {
   Terminal,
 } from "lucide-react";
 import versions from "./generated/sdk-versions.json";
+import exactExample from "../../sdks/exact/example/app.ts?raw";
 import { api, DataState, Dialog, useData } from "./lib";
 
 function Snippet({ code }) {
@@ -197,17 +198,10 @@ await client.capture("checkout_completed", { orderId: "order-123" }, { id: "chec
       file: `birdwatch-exact-${versions.exact}.tgz`,
       install: `npm install ./birdwatch-exact-${versions.exact}.tgz`,
       detail:
-        "The download includes a Contract app that commits locally, replays at launch, and retries while open. Replace its host and write key with these values.",
-      example: `import { createExactClient } from "@birdwatch/exact";
-
-const client = createExactClient({ ${clientConfig}, fetch });
-
-// Call from a Contract answer with its storage grant and epoch milliseconds.
-export async function recordCompletion(storage, at) {
-  const context = { storage, at };
-  await client.identify(context, "user-42");
-  return client.capture(context, "checkout_completed", { orderId: "order-123" }, { id: "checkout:order-123" });
-}`,
+        "Copy the packaged example’s manifest and Contract, then use this app.ts for your project.",
+      example: exactExample
+        .replace('"http://127.0.0.1:8123"', () => JSON.stringify(origin))
+        .replace('"YOUR_PROJECT_WRITE_KEY"', () => JSON.stringify(p.write_key)),
     },
     Swift: {
       file: `birdwatch-swift-${versions.swift}.zip`,

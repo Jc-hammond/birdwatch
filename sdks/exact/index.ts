@@ -1,4 +1,4 @@
-import { encodeEvent, invalid, newId, type EncodedEvent } from "../../sdk/src/event.js";
+import { encodeEvent, invalid, newId, snapshotProperties, type EncodedEvent } from "../../sdk/src/event.js";
 import { captureEndpoint, configure, payload, send } from "../../sdk/src/transport.js";
 import type { ClientOptions, EventCatalog, Properties, ServerEvent } from "../../sdk/src/types.js";
 import { utf8Length } from "../../sdk/src/utf8.js";
@@ -31,20 +31,30 @@ export function createExactClient(options: ExactOptions) {
   }
   const box = exactOutbox(JSON.stringify([config.endpoint, config.key]), config.maxQueue, overhead, encode, deliver, config.report);
   let closing: Promise<void> | undefined;
+  let admissions = Promise.resolve();
+  function admit<T>(operation: () => Promise<T>) {
+    open();
+    const result = admissions.then(operation);
+    admissions = result.then(() => {}, () => {});
+    return result;
+  }
   function open() { if (closing) invalid("The Exact client is closed."); }
-  async function flush(ctx: ExactContext) {
-    return box.flush(ctx.storage, ctx.at, ctx.background, ctx.retryToken);
+  async function flush(ctx: ExactDeliveryContext) {
+    await admissions;
+    return box.flush(ctx.storage, ctx.sendTime, ctx.background, ctx.retryToken);
   }
   return {
     async capture(ctx: ExactContext, name: string, properties?: Properties, options: { id?: string; timestamp?: string } = {}) {
       open();
       if (!Number.isFinite(ctx.at)) invalid("Pass epoch milliseconds from Contract.");
-      return box.enqueue({ event: name, properties, id: options.id, timestamp: options.timestamp ?? new Date(ctx.at).toISOString() }, ctx.storage);
+      const event = { event: name, properties: JSON.parse(snapshotProperties(properties ?? {})),
+        id: options.id ?? newId(), timestamp: options.timestamp ?? new Date(ctx.at).toISOString() };
+      return admit(() => box.enqueue(event, ctx.storage));
     },
-    async identify(ctx: ExactContext, id: string) { open(); await box.identify(ctx.storage, id); },
-    async reset(ctx: ExactContext) { open(); await box.identify(ctx.storage, newId()); },
-    async flush(ctx: ExactContext): Promise<ExactFlushResult> { open(); return flush(ctx); },
-    close(ctx: ExactContext) { return closing ??= flush(ctx).then(() => {}); },
+    async identify(ctx: ExactContext, id: string) { await admit(() => box.identify(ctx.storage, id)); },
+    async reset(ctx: ExactContext) { await admit(() => box.identify(ctx.storage, newId())); },
+    async flush(ctx: ExactDeliveryContext): Promise<ExactFlushResult> { open(); return flush(ctx); },
+    close(ctx: ExactDeliveryContext) { return closing ??= flush(ctx).then(() => {}); },
     onError: config.onError,
   };
 }
@@ -53,6 +63,11 @@ export function createExactClient(options: ExactOptions) {
 export interface ExactContext {
   storage: ExactStorage;
   at: number;
+}
+
+export interface ExactDeliveryContext {
+  storage: ExactStorage;
+  sendTime: () => number | Promise<number>;
   background?: boolean;
   retryToken?: number;
 }

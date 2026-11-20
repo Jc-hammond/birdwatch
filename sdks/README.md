@@ -27,7 +27,7 @@ All six methods operate on the client returned by the platform’s factory. Brow
 | Android | `capture(name[, properties[, id, timestampMillis]]): CompletableFuture<String>` | `identify(id[, traits]): CompletableFuture<Void>`, `reset(): CompletableFuture<String>` | `flush(): CompletableFuture<Void>`, `close(): CompletableFuture<Void>`, `onError(handler): void` |
 | Expo Exact | `capture(ctx, name, properties?, options?): Promise<string>` | `identify(ctx, id, traits?): Promise<void>`, `reset(ctx): Promise<void>` | `flush(ctx): Promise<ExactFlushResult>`, `close(ctx): Promise<void>`, `onError(handler): void` |
 
-Exact’s flush result carries acknowledgement counts and a retry token for scheduling in Contract. The packaged example passes fresh action time on every send.
+Exact’s delivery context contains `storage` and a `sendTime` callback supplied by Contract. Its flush result carries acknowledgement counts and a retry token for scheduling in Contract. The packaged example passes fresh action time on every send.
 
 ## Build and test the SDKs
 

@@ -124,7 +124,7 @@ export class ExactDriver {
     const work = this.work;
     let task;
     task = this.client
-      .flush({ storage: this.storage, at: this.now, background, retryToken: token })
+      .flush({ storage: this.storage, sendTime: () => this.now, background, retryToken: token })
       .then((outcome) => {
         if (work === this.work && outcome.retryToken) {
           this.due = Math.max(this.now + outcome.retryAfterMs, Math.min(this.now + 300000, outcome.retryAtMs ?? 0));
