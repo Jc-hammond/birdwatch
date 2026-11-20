@@ -307,7 +307,7 @@ export async function createReactNativeClient<
       ...opts,
       id: opts?.id ?? id(),
     });
-    const saved = box.put(encoded).then(({ row, dropped }) => {
+    const saved = box.put(encoded).then(({ row, dropped, size }) => {
       if (dropped.length) {
         const error = new BirdwatchError(
           "queue_full",
@@ -320,7 +320,15 @@ export async function createReactNativeClient<
           settle(old, error);
         }
       }
-      schedule(config.flushInterval);
+      if (
+        size >= config.batchSize &&
+        !running &&
+        online &&
+        !paused &&
+        Date.now() >= retryAt
+      )
+        void flush().catch(() => {});
+      else schedule(config.flushInterval);
       return row;
     });
     writes = saved.then(
@@ -358,7 +366,6 @@ export async function createReactNativeClient<
           entry = waiting.get(key) ?? { row, calls: [] as Waiter[] };
         entry.calls.push({ resolve, reject, failures: 0 });
         waiting.set(key, entry);
-        if (waiting.size >= config.batchSize) void flush().catch(() => {});
       });
     })();
     void receipt.catch(() => {});

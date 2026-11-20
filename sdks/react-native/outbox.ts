@@ -207,7 +207,8 @@ export class Outbox {
   put(event: EncodedEvent) {
     return this.run(async () => {
       const existing = this.rows.get(event.id);
-      if (existing) return { row: existing, dropped: [] as Row[] };
+      if (existing)
+        return { row: existing, dropped: [] as Row[], size: this.rows.size };
       const { epoch, next } = this.header;
       const row: Row = { ...event, sequence: next, epoch };
       const dropped: Row[] = [];
@@ -224,7 +225,7 @@ export class Outbox {
       for (const saved of dropped) this.rows.delete(saved.id);
       this.rows.set(row.id, row);
       await this.cleanup(dropped);
-      return { row, dropped };
+      return { row, dropped, size: this.rows.size };
     });
   }
   take(limit: number, bytes: number) {
