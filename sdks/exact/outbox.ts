@@ -93,8 +93,8 @@ export function exactOutbox(scope: string, capacity: number, overhead: number,
       return { id: encoded.id };
     });
   }
-  async function replay(db: Database, at: number, background: boolean): Promise<typeof empty> {
-    const bound = !background && retryThrough;
+  async function replay(db: Database, at: number, background: boolean, bound?: string): Promise<typeof empty> {
+    const started = generation;
     const { rows } = await db.query("SELECT seq,uuid,event FROM events_v1 WHERE scope=?" +
       (bound ? " AND seq<=?" : "") + " ORDER BY seq LIMIT 100", bound ? [scope, bound] : [scope]);
     const events: EncodedEvent[] = [], sequences: string[] = [];
@@ -116,10 +116,7 @@ export function exactOutbox(scope: string, capacity: number, overhead: number,
       }
     }
     if (damaged) report(new BirdwatchError("storage", "Moved unreadable Exact events aside."));
-    if (!events.length) {
-      retryThrough = undefined;
-      return empty;
-    }
+    if (!events.length) return empty;
     const deletes = sequences.map(seq => ({ sql: "DELETE FROM events_v1 WHERE scope=? AND seq=?", params: [scope, seq] }));
     let result: Awaited<ReturnType<typeof send>>;
     try { result = await deliver(events, at, background); }
@@ -146,20 +143,20 @@ export function exactOutbox(scope: string, capacity: number, overhead: number,
     const removed = await db.transaction(deletes);
     for (const [index, error] of result.rejected) if (removed[index].changes) report(error);
     overflow = false;
-    failures = 0;
-    retryThrough = undefined;
+    if (started === generation) failures = 0;
     return { ...empty, ...result.counts };
   }
   function flush(storage: ExactStorage, at: number, background = false, retryToken = 0): Promise<typeof empty> {
     if (!Number.isFinite(at)) invalid("Pass epoch milliseconds from Contract.");
-    if (paused || (waiting && retryToken !== waiting)) return Promise.resolve(empty);
-    if (!background && running) {
-      return retryToken ? running.then(() => flush(storage, at, false, retryToken)) : running;
-    }
+    if (paused || waiting !== retryToken) return Promise.resolve(empty);
+    if (!background && !retryToken && running) return running;
+    const bound = retryThrough;
+    retryThrough = undefined;
     waiting = wait = retryAt = 0;
-    const work = use(storage, report, db => replay(db, at, background));
+    const work = use(storage, report, db => replay(db, at, background, bound));
     if (background) return work;
-    running = work.finally(() => { running = undefined; });
+    const active = work.finally(() => { if (running === active) running = undefined; });
+    running = active;
     return running;
   }
   return { enqueue, flush };

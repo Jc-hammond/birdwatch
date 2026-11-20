@@ -16,7 +16,7 @@ function integer(
 }
 const hostError = "Use an HTTP(S) host without credentials, query or fragment.";
 
-export function captureEndpoint(host: string) {
+function endpoint(host: string) {
   // Exact and React Native also run on hosts with partial WHATWG URL support.
   const match = typeof host === "string" &&
     /^https?:\/\/(?:\[[0-9a-f:.]+\]|[a-z0-9_.-]+)(?::([0-9]{1,5}))?(?:\/[^?#\\\s]*)?$/i.exec(host);
@@ -25,9 +25,42 @@ export function captureEndpoint(host: string) {
   return host.replace(/\/+$/, "") + "/api/capture";
 }
 
+// Exact can omit URL entirely. Validate numeric authorities before a bad
+// collector can park a durable outbox in a permanent network retry.
+export function captureEndpoint(host: string) {
+  const result = endpoint(host);
+  const authority = host.split("/")[2]!;
+  const literal = authority.startsWith("[") ? authority.slice(1, authority.indexOf("]")) : authority.split(":")[0]!;
+  if (literal.includes(":")) {
+    let address = literal;
+    if (address.includes(".")) {
+      const tail = address.slice(address.lastIndexOf(":") + 1);
+      if (!validIPv4(tail)) invalid(hostError);
+      address = address.slice(0, -tail.length) + "0:0";
+    }
+    const halves = address.split("::");
+    const groups = halves.flatMap(half => half ? half.split(":") : []);
+    if (halves.length > 2 || !groups.every(group => /^[0-9a-f]{1,4}$/i.test(group)) ||
+        (halves.length === 2 ? groups.length >= 8 : groups.length !== 8)) invalid(hostError);
+  } else if (/^[\d.]+$/.test(literal)) {
+    // IPv4 URL hosts can omit middle octets (127.1 is the loopback).
+    const parts = literal.replace(/\.$/, "").split(".");
+    const numbers = parts.map(part => /^0[0-7]+$/.test(part) ? parseInt(part, 8) :
+      /^(?:0|[1-9]\d*)$/.test(part) ? Number(part) : NaN);
+    if (parts.length > 4 || !numbers.every((n, index) =>
+      n >= 0 && n < (index === parts.length - 1 ? 256 ** (5 - parts.length) : 256))) invalid(hostError);
+  }
+  return result;
+}
+
+function validIPv4(address: string) {
+  const parts = address.split(".");
+  return parts.length === 4 && parts.every(part => /^(?:0|[1-9]\d{0,2})$/.test(part) && Number(part) <= 255);
+}
+
 function browserEndpoint(host: string) {
   try {
-    return captureEndpoint(new URL(host).href);
+    return endpoint(new URL(host).href);
   } catch {
     return invalid(hostError);
   }
