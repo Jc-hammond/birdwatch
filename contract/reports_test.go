@@ -322,9 +322,12 @@ func TestDemoProjectIsSeparateAndFrozen(t *testing.T) {
 	if !report.AsOf.Equal(first.AsOf) || report.Current[0] <= 0 {
 		t.Error("demo overview must have events and use the frozen sample time")
 	}
-	if os.Getenv("BIRDWATCH_REFERENCE") == "go" {
+	if os.Getenv("BIRDWATCH_REFERENCE") != "python" {
 		fresh := start(t, filepath.Join(t.TempDir(), "fresh.db"), true, "")
-		check(t, "identical sample reports", decode[object](t, fresh.report(t, p, "overview?days=30")), decode[object](t, s.report(t, p, "overview?days=30")))
+		const report = "overview?days=30"
+		if !reflect.DeepEqual(decode[object](t, fresh.report(t, p, report)), decode[object](t, s.report(t, p, report))) {
+			t.Error("fresh installations produced different sample reports")
+		}
 	}
 	empty := startEmpty(t)
 	projects := decode[struct{ Projects []sample }](t, empty.expect(t, 200, "GET", "/api/projects", nil, nil)).Projects
@@ -332,5 +335,4 @@ func TestDemoProjectIsSeparateAndFrozen(t *testing.T) {
 		t.Fatal("expected one empty, writable project with --no-demo")
 	}
 	check(t, "empty project events", empty.overview(t, project{id: projects[0].ID}, 30).Current[0], float64(0))
-
 }
