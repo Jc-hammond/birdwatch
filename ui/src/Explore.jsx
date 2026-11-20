@@ -71,6 +71,12 @@ function Results({ view, project, days, filters, go, inspect }) {
     0,
     project.sample_as_of || offset ? 0 : 5000
   );
+  useEffect(() => {
+    if (pageIndex && live.code === "cursor_expired") {
+      setPages([]);
+      setPageIndex(0);
+    }
+  }, [pageIndex, live.code]);
   const state = cached ? { data: cached } : live;
   const rows = state.data?.rows;
   const first = pages[0] ?? live.data;

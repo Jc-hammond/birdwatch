@@ -72,7 +72,11 @@ export async function api(path, body, signal) {
   } catch {
     throw new Error(`Birdwatch returned an unreadable response (HTTP ${res.status}). Check the server or proxy.`);
   }
-  if (!res.ok) throw new Error(typeof result?.error === "string" ? result.error : `Request failed (HTTP ${res.status}).`);
+  if (!res.ok) {
+    const error = new Error(typeof result?.error === "string" ? result.error : `Request failed (HTTP ${res.status}).`);
+    error.code = result?.code;
+    throw error;
+  }
   return result;
 }
 export function useData(url, refresh = 0, poll = 0) {
@@ -94,9 +98,9 @@ export function useData(url, refresh = 0, poll = 0) {
         const data = await api(url, null, controller.signal);
         if (!controller.signal.aborted) setState({ url, data });
       } catch (e) {
-        failed = true;
+        failed = e.code !== "cursor_expired";
         if (!controller.signal.aborted)
-          setState((old) => ({ url, data: old.url === url ? old.data : undefined, error: e.message }));
+          setState((old) => ({ url, data: failed && old.url === url ? old.data : undefined, error: e.message, code: e.code }));
       } finally {
         if (!controller.signal.aborted && (poll || failed))
           timer = setTimeout(load, poll || 5000);
