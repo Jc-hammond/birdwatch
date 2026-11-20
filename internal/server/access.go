@@ -29,19 +29,24 @@ func localHost(authority string) bool {
 	return strings.EqualFold(host, "localhost") || net.ParseIP(host).IsLoopback()
 }
 
-func (s *Server) authorize(w http.ResponseWriter, r *http.Request) *failure {
-	headers := w.Header()
+func publicRoute(path string) bool {
+	return path == "/api/capture" || path == "/birdwatch.js" || path == "/healthz"
+}
+
+func setSecurityHeaders(headers http.Header, path string, public bool) {
 	headers.Set("X-Content-Type-Options", "nosniff")
 	headers.Set("Referrer-Policy", "no-referrer")
-	if strings.HasPrefix(r.URL.Path, "/api/") {
+	if strings.HasPrefix(path, "/api/") {
 		headers.Set("Cache-Control", "no-store")
 	}
-	switch r.URL.Path {
-	case "/api/capture", "/birdwatch.js", "/healthz":
+	if public {
 		headers.Set("Access-Control-Allow-Origin", "*")
-		return nil
+	} else {
+		headers.Set("Content-Security-Policy", dashboardCSP)
 	}
-	headers.Set("Content-Security-Policy", dashboardCSP)
+}
+
+func (s *Server) authorize(w http.ResponseWriter, r *http.Request) *failure {
 	if len(s.credential) == 0 {
 		if !localHost(r.Host) {
 			return &failure{403, "forbidden", "Use the loopback address to access this dashboard."}
@@ -50,7 +55,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) *failure {
 		user, password, ok := r.BasicAuth()
 		provided := sha256.Sum256([]byte(user + ":" + password))
 		if !ok || subtle.ConstantTimeCompare(provided[:], s.credential) != 1 {
-			headers.Set("WWW-Authenticate", `Basic realm="Birdwatch", charset="UTF-8"`)
+			w.Header().Set("WWW-Authenticate", `Basic realm="Birdwatch", charset="UTF-8"`)
 			return &failure{401, "unauthorized", "Sign in to the dashboard as admin."}
 		}
 	}

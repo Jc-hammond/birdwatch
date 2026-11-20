@@ -219,9 +219,18 @@ func TestHostOriginAndPassword(t *testing.T) {
 		check(t, "content sniffing", script.header.Get("X-Content-Type-Options"), "nosniff")
 		// Access policy applies even while the capture handler is being ported.
 		capture, err := s.request("OPTIONS", "/api/capture", nil, public)
-		if err != nil || capture.status == 401 || capture.status == 403 || capture.header.Get("WWW-Authenticate") != "" || capture.header.Get("Access-Control-Allow-Origin") != "*" {
-			t.Fatal("public capture request challenged or denied by the dashboard guard")
+		if err != nil {
+			t.Fatal(err)
 		}
+		switch capture.status {
+		case http.StatusNoContent:
+		case http.StatusNotFound:
+			check(t, "unported capture route", errorBody(t, capture).Code, "not_found")
+		default:
+			t.Fatalf("public capture preflight returned HTTP %d", capture.status)
+		}
+		check(t, "public capture challenge", capture.header.Get("WWW-Authenticate"), "")
+		check(t, "public capture CORS", capture.header.Get("Access-Control-Allow-Origin"), "*")
 	})
 	t.Run("error_codes_and_public_health", func(t *testing.T) {
 		s := start(t, filepath.Join(t.TempDir(), "private.sqlite3"), false, "sample-test-password")

@@ -2,6 +2,7 @@ package contract_test
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -105,6 +106,17 @@ func start(t *testing.T, db string, demo bool, password string) server {
 	cmd := exec.Command(command[0], args...)
 	cmd.Dir = runDir
 	cmd.Env = append(cmd.Environ(), "BIRDWATCH_PASSWORD="+password)
+	if password != "" {
+		var logs bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &logs, &logs
+		// Registered before stop so the subprocess has exited when logs are read.
+		t.Cleanup(func() {
+			basic := base64.StdEncoding.EncodeToString([]byte("admin:" + password))
+			if strings.Contains(logs.String(), password) || strings.Contains(logs.String(), basic) {
+				t.Error("server log contains dashboard credentials")
+			}
+		})
+	}
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
