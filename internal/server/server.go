@@ -1,15 +1,16 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
+	"github.com/Jc-hammond/birdwatch/internal/storage"
+	"github.com/ncruces/go-sqlite3"
 	"log"
-	"net"
 	"net/http"
 	"runtime/debug"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Jc-hammond/birdwatch/internal/dashboard"
@@ -19,18 +20,25 @@ const maxBody = 1 << 20
 
 type endpoint func(*http.Request) (any, error)
 
+type httpResult struct {
+	status int
+	body   any
+}
+
 type Server struct {
+	db         *storage.Store
 	routes     map[string]map[string]endpoint
 	active     chan struct{}
 	log        *log.Logger
 	credential []byte
 }
 
-func New(logger *log.Logger, password string, health func(context.Context) error) *Server {
-	return &Server{
+func New(logger *log.Logger, password string, db *storage.Store) *Server {
+	s := &Server{
+		db: db,
 		routes: map[string]map[string]endpoint{
 			"/healthz": {"GET": func(r *http.Request) (any, error) {
-				if err := health(r.Context()); err != nil {
+				if err := db.Health(r.Context()); err != nil {
 					return nil, failure{503, "unavailable", "Database unavailable. Retry in one second."}
 				}
 				return map[string]bool{"ok": true}, nil
@@ -40,6 +48,10 @@ func New(logger *log.Logger, password string, health func(context.Context) error
 		log:        logger,
 		credential: dashboardCredential(password),
 	}
+	s.routes["/api/projects"] = map[string]endpoint{"POST": s.createProject}
+	s.routes["/api/projects/{project}/setup"] = map[string]endpoint{"GET": s.setup}
+	s.routes["/api/capture"] = map[string]endpoint{"POST": s.capture, "OPTIONS": nil}
+	return s
 }
 
 type failure struct {
@@ -70,21 +82,13 @@ func resolve(w http.ResponseWriter, r *http.Request, methods map[string]endpoint
 		return nil, tooLargeError
 	}
 	if r.ContentLength < 0 {
-		// A chunked request has no declared size. Verify it before the handler can act.
-		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
-		if err != nil {
-			var tooLarge *http.MaxBytesError
-			if errors.As(err, &tooLarge) {
-				return nil, tooLargeError
+		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+		// POST handlers finish reading before opening a transaction.
+		if r.Method != http.MethodPost {
+			if _, err := readBody(r.Body); err != nil {
+				return nil, err
 			}
-			var netErr net.Error
-			if errors.As(err, &netErr) && netErr.Timeout() {
-				w.Header().Set("Retry-After", "1")
-				return nil, failure{503, "unavailable", "Request body timed out. Retry in one second."}
-			}
-			return nil, failure{400, "invalid_event", "Could not read the request body."}
 		}
-		r.Body = io.NopCloser(bytes.NewReader(body))
 	}
 	return fn, nil
 }
@@ -92,14 +96,22 @@ func resolve(w http.ResponseWriter, r *http.Request, methods map[string]endpoint
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	pattern := "unmatched"
-	methods := s.routes[r.URL.Path]
+	route := r.URL.Path
+	if tail, ok := strings.CutPrefix(route, "/api/projects/"); ok {
+		id, kind, _ := strings.Cut(tail, "/")
+		if _, err := strconv.ParseUint(id, 10, 60); err == nil && len(id) <= 18 {
+			route = "/api/projects/{project}/" + kind
+			r.SetPathValue("project", id)
+		}
+	}
+	methods := s.routes[route]
 	asset := dashboard.Lookup(r.URL.Path)
 	if asset != nil {
 		pattern = "dashboard"
 		methods = assetMethods
 	} else if methods != nil {
 		// Only exact, registered paths reach the log.
-		pattern = r.URL.Path
+		pattern = route
 	}
 	status := http.StatusOK
 	defer func() {
@@ -134,11 +146,24 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			status = asset.Serve(w, r)
 			return
 		}
+		if route == "/api/capture" && r.Method == "OPTIONS" {
+			w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Max-Age", "86400")
+			status = http.StatusNoContent
+			w.WriteHeader(status)
+			return
+		}
 		body, err = fn(r)
+		if result, ok := body.(httpResult); ok {
+			status, body = result.status, result.body
+		}
 	}
 	if err != nil {
 		var f failure
-		if !errors.As(err, &f) {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, sqlite3.BUSY) {
+			f = failure{503, "unavailable", "Database busy. Retry in one second."}
+		} else if !errors.As(err, &f) {
 			f = internalError
 		}
 		if f.status == http.StatusServiceUnavailable {

@@ -1,17 +1,23 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
+	"github.com/Jc-hammond/birdwatch/internal/storage"
 	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 )
 
 func TestPanicReturnsJSONAndServerKeepsServing(t *testing.T) {
-	s := New(log.New(io.Discard, "", 0), "", func(context.Context) error { return nil })
+	db, err := storage.Open(t.Context(), filepath.Join(t.TempDir(), "events.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s := New(log.New(io.Discard, "", 0), "", db)
 	s.routes["/panic"] = map[string]endpoint{"GET": func(*http.Request) (any, error) { panic("test") }}
 	ts := httptest.NewServer(s)
 	defer ts.Close()
