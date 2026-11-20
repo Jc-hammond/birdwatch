@@ -46,12 +46,14 @@ def counts(revision):
     return totals
 
 
-def main():
+def report(repo, pr):
+    subprocess.run(["git", "fetch", "--no-tags", "--depth=1", "origin",
+                    "+refs/heads/main:refs/remotes/origin/main",
+                    f"+refs/pull/{pr}/head:refs/remotes/origin/size-pr"], check=True)
     base, head = counts("origin/main"), counts("origin/size-pr")
     rows = [MARKER, "### Source lines", "", "| Area | main | PR | Change |", "| --- | ---: | ---: | ---: |"]
     for key in AREAS:
         rows.append(f"| {key} | {base[key]} | {head[key]} | {head[key] - base[key]:+d} |")
-    repo, pr = os.environ["GITHUB_REPOSITORY"], os.environ["PR"]
     endpoint = f"repos/{repo}/issues/{pr}/comments"
     pages = json.loads(subprocess.check_output(["gh", "api", "--paginate", "--slurp", endpoint]))
     method = "POST"
@@ -64,4 +66,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    repo = os.environ["GITHUB_REPOSITORY"]
+    if "PR" in os.environ:
+        report(repo, int(os.environ["PR"]))
+    else:
+        # Fork workflow_run payloads may omit pull_requests. Resolve the tested commit through GitHub.
+        sha = os.environ["HEAD_SHA"]
+        pulls = json.loads(subprocess.check_output(["gh", "api", f"repos/{repo}/commits/{sha}/pulls"]))
+        for pull in pulls:
+            if pull["state"] == "open" and pull["head"]["sha"] == sha:
+                report(repo, pull["number"])

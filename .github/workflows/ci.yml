@@ -4,15 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
-  # A fork's normal PR run has a read-only token. Use base-branch code for its comment.
-  pull_request_target:
 
 permissions:
   contents: read
 
 jobs:
   server:
-    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -30,7 +27,6 @@ jobs:
         run: go test -count=1 ./contract/...
 
   javascript:
-    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -47,7 +43,6 @@ jobs:
         run: npm ci && npm run build
 
   native:
-    if: github.event_name != 'pull_request_target'
     strategy:
       fail-fast: false
       matrix:
@@ -70,9 +65,7 @@ jobs:
         run: ./gradlew assemble
 
   size:
-    if: >-
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
-      (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository)
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -83,10 +76,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          # pull_request_target defaults to the trusted base. Never run scripts from a fork.
           persist-credentials: false
-      - name: Fetch trees to compare
-        run: git fetch --no-tags --depth=1 origin '+refs/heads/main:refs/remotes/origin/main' "+refs/pull/$PR/head:refs/remotes/origin/size-pr"
       - name: Update source line counts
         env:
           GH_TOKEN: ${{ github.token }}
