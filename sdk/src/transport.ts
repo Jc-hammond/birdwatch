@@ -14,7 +14,7 @@ function integer(
     invalid(`${field} must be an integer from ${min} to ${max}.`);
   return value;
 }
-function browserEndpoint(host: string) {
+export function captureEndpoint(host: string) {
   let url: URL;
   try {
     url = new URL(host);
@@ -37,7 +37,7 @@ function browserEndpoint(host: string) {
 
 export function configure(
   options: ClientOptions,
-  endpointFor = browserEndpoint
+  endpointFor = captureEndpoint
 ) {
   if (!options || typeof options.host !== "string")
     invalid("Provide a host and project writeKey.");
@@ -77,12 +77,12 @@ export class DeliveryFailure extends BirdwatchError {
   }
 }
 
-export function payload(key: string, rows: { json: string }[]) {
+export function payload(key: string, rows: { json: string }[], sentAt = new Date().toISOString()) {
   return (
     '{"api_key":' +
     JSON.stringify(key) +
     ',"sent_at":"' +
-    new Date().toISOString() +
+    sentAt +
     '","batch":[' +
     rows.map((e) => e.json).join(",") +
     "]}"
@@ -94,7 +94,8 @@ export async function send(
   body: string,
   count: number,
   browser: boolean,
-  keepalive: boolean
+  keepalive: boolean,
+  attemptTime?: number
 ) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.timeout);
@@ -119,7 +120,7 @@ export async function send(
           ? NaN
           : /^\d+(\.\d+)?$/.test(header)
             ? Number(header) * 1000
-            : Date.parse(header) - Date.now();
+            : Date.parse(header) - (attemptTime ?? Date.now());
       const outcome =
         status >= 500 || status === 429 || status === 408
           ? "retry"

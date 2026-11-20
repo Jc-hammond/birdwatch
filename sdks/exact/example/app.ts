@@ -9,7 +9,7 @@ const sources: Sources = {
   recordCompletion: ([distinctId, id, at], _store, storage) =>
     client.enqueue({ id, distinctId, timestamp: new Date(at).toISOString(),
       event: "onboarding_completed", properties: { step: "welcome" } }, storage.sqlite),
-  replay: (_args, _store, storage) => client.flush(storage.sqlite)
+  replay: ([at, background], _store, storage) => client.flush(storage.sqlite, at, background)
 };
 export const answer: Answer = (source, args, store, storage, native) =>
   sources[source](args, store, storage, native);

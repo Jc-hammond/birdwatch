@@ -12,7 +12,6 @@ import {
   send,
   DeliveryFailure,
 } from "../../sdk/src/transport.js";
-import { captureEndpoint } from "../endpoint.js";
 import { AppState } from "react-native";
 import {
   BirdwatchError,
@@ -63,7 +62,7 @@ export interface NativeClient<C extends CatalogShape<C>> extends Lifecycle {
 export async function createReactNativeClient<
   C extends CatalogShape<C> = EventCatalog,
 >(options: NativeOptions): Promise<NativeClient<C>> {
-  const config = configure(options, captureEndpoint);
+  const config = configure(options);
   const retries = options.maxRetries ?? 2;
   if (!Number.isInteger(retries) || retries < 0 || retries > 5)
     invalid("maxRetries must be an integer from 0 to 5.");

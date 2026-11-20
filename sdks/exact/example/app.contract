@@ -2,6 +2,9 @@ shape Time
   epochAtZero: number
   utcOffset: number
 
+shape Page
+  visibilityState: string
+
 shape Saved
   id: string
 
@@ -10,14 +13,20 @@ shape Receipt
   duplicates: number
 
 component App
+  resource page = exactPage() as shape Page
   resource time = exactTime() as shape Time
   mutation saved as shape Saved then sync
+  mutation hiddenDelivery as shape Receipt
   mutation delivery as shape Receipt
   action complete
     send saved = recordCompletion("demo-user", "demo-user:onboarding-v1", time.epochAtZero + performanceNow())
   action sync
     if not pending(delivery)
-      send delivery = replay()
+      send delivery = replay(time.epochAtZero + performanceNow(), false)
+  action hide
+    send hiddenDelivery = replay(time.epochAtZero + performanceNow(), true)
+  task hid when page.visibilityState == "hidden"
+    after(1, hide)
   task launch mount
     after(1, sync)
   task reconnect mount

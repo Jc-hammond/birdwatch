@@ -223,9 +223,11 @@ export class DeliveryQueue {
               this.retryAt,
               Date.now() + this.delay(failure)
             );
-            await new Promise((resolve) =>
-              setTimeout(resolve, this.retryAt - Date.now())
-            );
+            while (Date.now() < this.retryAt) {
+              await new Promise((resolve) =>
+                setTimeout(resolve, this.retryAt - Date.now())
+              );
+            }
             rows = rows.filter((item) => this.pending.has(item));
           }
         }
