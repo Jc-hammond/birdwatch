@@ -37,7 +37,7 @@ func run() error {
 	}
 	srv := &http.Server{
 		DisableGeneralOptionsHandler: true,
-		Handler:                      server.New(log.Default(), db.Health),
+		Handler:                      server.New(log.Default(), cfg.Password, db.Health),
 		ReadTimeout:                  15 * time.Second,
 		WriteTimeout:                 30 * time.Second,
 	}

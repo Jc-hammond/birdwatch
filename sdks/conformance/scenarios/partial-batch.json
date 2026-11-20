@@ -1,0 +1,25 @@
+{
+  "rule": "Retire an acknowledged batch, reporting each rejected event once.",
+  "collector": [
+    {
+      "reject": [1]
+    }
+  ],
+  "steps": [
+    {
+      "capture": ["a", "b", "c"]
+    },
+    "flush",
+    {
+      "advanceMs": 7000
+    }
+  ],
+  "expect": {
+    "requests": [
+      ["a", "b", "c"]
+    ],
+    "stored": ["a", "c"],
+    "outbox": [],
+    "errors": 1
+  }
+}

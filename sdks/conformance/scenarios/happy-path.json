@@ -1,0 +1,18 @@
+{
+  "rule": "A successful result acknowledges every event in its batch.",
+  "collector": ["ack"],
+  "steps": [
+    {
+      "capture": ["a", "b"]
+    },
+    "flush"
+  ],
+  "expect": {
+    "requests": [
+      ["a", "b"]
+    ],
+    "stored": ["a", "b"],
+    "outbox": [],
+    "errors": 0
+  }
+}

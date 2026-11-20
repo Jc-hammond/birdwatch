@@ -1,0 +1,27 @@
+{
+  "rule": "An interrupted flush retains each unacknowledged UUID for replay after restart.",
+  "config": {
+    "browser": true,
+    "persist": true
+  },
+  "collector": ["holdAck", "ack"],
+  "steps": [
+    {
+      "capture": ["a"]
+    },
+    "flush",
+    "restart",
+    "flush"
+  ],
+  "expect": {
+    "requests": [
+      ["a"],
+      ["a"]
+    ],
+    "stored": ["a"],
+    "outbox": [],
+    "errors": 0,
+    "duplicates": 1,
+    "stableRetries": true
+  }
+}

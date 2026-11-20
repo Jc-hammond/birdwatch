@@ -1,0 +1,29 @@
+{
+  "rule": "Each send carries sent_at from the same device clock as the occurrence time.",
+  "collector": ["loseAck", "ack"],
+  "steps": [
+    {
+      "clockAheadMs": 3600000
+    },
+    {
+      "capture": ["a"]
+    },
+    {
+      "advanceMs": 5000
+    },
+    "flush",
+    {"advanceMs": 1000}
+  ],
+  "expect": {
+    "requests": [
+      ["a"],
+      ["a"]
+    ],
+    "stored": ["a"],
+    "outbox": [],
+    "errors": 0,
+    "clockAgeMs": 5000,
+    "stableRetries": true,
+    "freshSendTimes": true
+  }
+}

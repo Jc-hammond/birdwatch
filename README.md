@@ -122,6 +122,6 @@ make test     # build and run the server, JavaScript and native checks
 make lint     # Go vet, SDK types and whitespace
 ```
 
-The npm workspace installs its pinned tools from the root lockfile. The dashboard and offline downloads are generated into `static/`. The Go port currently provides the endpoints implemented so far. The Python reference serves the dashboard during the port.
+The npm workspace installs its pinned tools from the root lockfile. The dashboard and offline downloads are generated into `static/`. The Go binary embeds the dashboard and its SDK downloads, so it can run from any directory. If invoking `go build` directly, run `make dashboard` first. The Python reference provides the full analytics API during the port.
 
 Birdwatch is available under the [MIT license](LICENSE). See [third-party notices](THIRD_PARTY_NOTICES.txt) for bundled dependencies.

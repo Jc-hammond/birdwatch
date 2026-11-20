@@ -1,0 +1,21 @@
+{
+  "rule": "Drop the oldest events when the queue is full and report the overflow once.",
+  "config": {
+    "capacity": 2
+  },
+  "collector": ["ack"],
+  "steps": [
+    {
+      "capture": ["a", "b", "c", "d"]
+    },
+    "flush"
+  ],
+  "expect": {
+    "requests": [
+      ["c", "d"]
+    ],
+    "stored": ["c", "d"],
+    "outbox": [],
+    "errors": 1
+  }
+}
