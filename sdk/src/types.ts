@@ -24,8 +24,6 @@ export interface ClientOptions {
   maxQueueSize?: number;
   /** Per HTTP attempt, including reading its response. Default 5,000 ms. */
   timeoutMs?: number;
-  /** Additional attempts after a transient failure. Default 2, maximum 5. */
-  maxRetries?: number;
   /** Observes each failed capture, including background delivery. */
   onError?: (error: BirdwatchError) => void;
   /** Use for a custom network environment or a test transport. */
@@ -33,6 +31,8 @@ export interface ClientOptions {
 }
 
 export interface BrowserOptions extends ClientOptions {
+  /** Store unacknowledged events in browser storage. Default false. */
+  persist?: boolean;
   /** The default reuses the existing browser tracker's per-project identity. */
   persistence?: "localStorage" | "memory";
 }
@@ -98,6 +98,7 @@ export interface ServerClient<C extends CatalogShape<C> = EventCatalog>
 export type ErrorCode =
   | "invalid_input"
   | "queue_full"
+  | "storage"
   | "closed"
   | "network"
   | "timeout"
@@ -110,7 +111,7 @@ export class BirdwatchError extends Error {
     readonly code: ErrorCode,
     message: string,
     readonly status?: number,
-    options?: ErrorOptions
+    options?: ErrorOptions,
   ) {
     super(message, options);
   }

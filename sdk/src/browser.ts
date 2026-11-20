@@ -1,4 +1,6 @@
 import { invalid, newId, stringField } from "./event.js";
+import { BirdwatchError } from "./types.js";
+import { browserOutbox } from "./outbox.js";
 import { DeliveryQueue } from "./queue.js";
 import type {
   BrowserClient,
@@ -15,7 +17,23 @@ export function createBrowserClient<C extends CatalogShape<C> = EventCatalog>(
     invalid(
       "createBrowserClient requires a browser. Use createServerClient on the server."
     );
-  const queue = new DeliveryQueue(options);
+  const outbox = options.persist
+    ? browserOutbox(options.host, options.writeKey, () => {
+        try {
+          void Promise.resolve(
+            options.onError?.(
+              new BirdwatchError(
+                "storage",
+                "Browser queue storage is unavailable or corrupt."
+              )
+            )
+          ).catch(() => {});
+        } catch {
+          /* Ignore observer errors. */
+        }
+      })
+    : undefined;
+  const queue = new DeliveryQueue(options, undefined, true, outbox);
   const persistence = options.persistence ?? "localStorage";
   if (!["memory", "localStorage"].includes(persistence))
     invalid("Unknown identity persistence mode.");
@@ -52,12 +70,12 @@ export function createBrowserClient<C extends CatalogShape<C> = EventCatalog>(
       event.storageArea === storage &&
       (event.key === key || event.key === null)
     ) {
-      person = readStored() ?? newId();
+      identify(readStored() ?? newId());
     }
   }
   function flushPage() {
     // Individual capture promises still report any failure to their caller.
-    void queue.flush().catch(() => {});
+    queue.unload();
   }
   function onVisibility() {
     if (document.visibilityState === "hidden") flushPage();

@@ -93,46 +93,35 @@ In a long-running service, call `shutdown()` from your application's shutdown ha
 | `flush()` | Starts delivery immediately and waits for all events outstanding at the time of the call. It rejects after those events settle if any failed. Events captured later have their own receipts. |
 | `shutdown()` | Stops accepting new events, waits for pending delivery, and removes browser listeners. Repeated calls return the same promise. |
 
-The SDK saves the identity, properties, timestamp, and ID at the time you call `capture()`. It sends events in capture order, one request at a time per client. To let the SDK batch events, call `capture()` for each event and then await the promises together.
+The SDK saves the identity, properties, timestamp, and ID at the time you call `capture()`. It sends queued events in capture order. A closing page can resend unacknowledged events while a request is in flight. To let the SDK batch events, call `capture()` for each event and then await the promises together.
 
-Retries reuse the same request body and event IDs, so Birdwatch counts an event once even if the original response was lost. If your app retries an event itself, pass the same `id` each time. Use a separate ID for each new event in a project.
+Retries preserve the original events and IDs and update the batch’s `sent_at` time, so Birdwatch counts an event once even if the original response was lost. If your app retries an event itself, pass the same `id` each time. Use a separate ID for each new event in a project.
 
 Browser capture accepts `{ id, timestamp }` as its third argument. Server capture accepts the same fields on the event object. A timestamp can be a valid `Date` or a zoned ISO 8601 string. The default is the event's capture time. Properties must be plain JSON objects and fit the collector's 32 KiB encoded limit.
 
 ### Failures
 
-`capture()` rejects with a `BirdwatchError`. The optional `onError` observer receives each failed capture once, including when the caller leaves its promise in the background. Observer errors are isolated from delivery. Configuration and invalid calls to `identify()` throw synchronously.
+Invalid input and terminal delivery errors reject the capture promise. A successful response resolves accepted and duplicate events and reports each rejected event through `onError`. Overflow drops the oldest pending events and reports the overflow once. An unknown key pauses the queue and reports the failure once. A new client can resume delivery from browser storage.
 
-| Code | Meaning |
-| --- | --- |
-| `invalid_input` | A setting, identifier, timestamp, or property value is invalid. |
-| `queue_full` | The pending-event limit has been reached. The new event was declined. |
-| `closed` | Capture was called after shutdown began. |
-| `network`, `timeout` | A network failure or request deadline exhausted the retry budget. |
-| `http` | The collector or proxy rejected the request. `error.status` contains the HTTP status. |
-| `invalid_response` | The response did not acknowledge the expected number of events. |
+Transient failures and unrecognized responses keep their events queued. The retry ceiling starts at one second and doubles to 60 seconds, with a random delay between zero and the ceiling. A valid `Retry-After` overrides the delay up to five minutes.
 
-Timeouts, network failures, invalid acknowledgements, HTTP 408, 429, and 5xx responses are retried with exponential backoff and jitter. The SDK observes `Retry-After`. If the requested wait exceeds 30 seconds it returns the error to the caller. On an atomic HTTP 400 or 413 batch rejection, it splits the batch to isolate the failing events.
-
-The queue lives in memory. On tab hide or page exit, the SDK attempts a keepalive flush. Tab termination, process crashes, browser keepalive limits, or exhausted retries can prevent delivery. For business-critical records, persist the event and its ID in your application's outbox and replay it from there.
-
-## Configuration
+The queue uses memory by default. Set `persist: true` on a browser client to retain unacknowledged events across reloads. A storage failure reports once and delivery continues from memory. On page hide, the SDK attempts keepalive delivery and falls back to a beacon if the fetch fails.
 
 | Option | Default | Behavior |
 | --- | --- | --- |
 | `host` | required | Absolute HTTP(S) collector URL, optionally with a reverse-proxy prefix. Use an address reachable from the sending device. |
 | `writeKey` | required | Project write key from Setup. |
-| `batchSize` | 20 | Send when this many events are queued. Range 1–100. Requests are also capped at 48 KiB. |
+| `batchSize` | 20 | Send when this many events are queued. Range 1–100. Browser requests are capped at 48 KiB and Node requests at 1 MiB. |
 | `flushIntervalMs` | 150 | Maximum batching delay when idle. Range 0–60,000 ms. |
 | `maxQueueSize` | 1,000 | Maximum outstanding events, including in-flight events. Range 1–100,000. |
 | `timeoutMs` | 5,000 | Per-attempt deadline through response-body consumption. Range 1–120,000 ms. |
-| `maxRetries` | 2 | Additional attempts per transient failure. Range 0–5. |
+| `persist` | `false` | Browser only. Keep unacknowledged events in local storage. |
 | `fetch` | runtime fetch | Custom Fetch-compatible implementation. It must respect the supplied AbortSignal. |
 | `onError` | unset | Optional observer for capture failures. |
 | `persistence` | `"localStorage"` | Browser identity only. Set to `"memory"` for page-lifetime identity. |
 
 ## Build and test the SDK
 
-Run `make test-js` from the repository root to build both module formats and run the type, SDK and adapter tests. After `make build`, run `npm run test:integration --workspace @birdwatch/sdk` to exercise the Python collector with a temporary database. Set `PYTHON` to select a Python interpreter.
+Run `make test-js` from the repository root to build both module formats and run the type checks, shared delivery scenarios and adapter tests.
 
 `make build` regenerates the dashboard's hosted script and offline SDK archives.
