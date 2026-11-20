@@ -5,12 +5,12 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -67,21 +67,15 @@ func serve(ctx context.Context, cfg config.Config, handler http.Handler) error {
 }
 
 func httpServer(handler http.Handler) *http.Server {
-	return &http.Server{Handler: handler, DisableGeneralOptionsHandler: true,
+	// Transport errors include peer addresses. Request metadata is logged by the application.
+	return &http.Server{Handler: handler, ErrorLog: log.New(io.Discard, "", 0), DisableGeneralOptionsHandler: true,
 		ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second}
 }
 
 func certificates(db, domain string) (*autocert.Manager, error) {
 	directory := filepath.Join(filepath.Dir(db), "birdwatch-certs")
-	if err := os.Mkdir(directory, 0700); err != nil && !errors.Is(err, os.ErrExist) {
-		return nil, err
-	}
-	info, err := os.Lstat(directory)
-	if err != nil {
-		return nil, err
-	}
-	if !info.IsDir() || (runtime.GOOS != "windows" && info.Mode().Perm()&0077 != 0) {
-		return nil, fmt.Errorf("certificate cache %s must be an owner-only directory", directory)
+	if err := privateCache(directory); err != nil {
+		return nil, fmt.Errorf("certificate cache: %w", err)
 	}
 	return &autocert.Manager{Prompt: autocert.AcceptTOS, Cache: autocert.DirCache(directory),
 		HostPolicy: autocert.HostWhitelist(domain)}, nil
@@ -109,7 +103,10 @@ func domainOnly(domain, port string, next http.Handler) http.Handler {
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
 		}
 		if !strings.EqualFold(r.Host, domain) && !strings.EqualFold(r.Host, net.JoinHostPort(domain, port)) {
-			http.Error(w, "Unrecognised host", http.StatusMisdirectedRequest)
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusMisdirectedRequest)
+			io.WriteString(w, `{"code":"forbidden","error":"Use the configured Birdwatch domain."}`)
 			return
 		}
 		next.ServeHTTP(w, r)
