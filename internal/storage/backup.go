@@ -2,43 +2,41 @@ package storage
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
-	"github.com/ncruces/go-sqlite3/driver"
+	"github.com/ncruces/go-sqlite3"
 )
 
 // Backup opens only an existing source. The command never creates or migrates it.
 func Backup(ctx context.Context, source, destination string) error {
-	path, err := filepath.Abs(source)
-	if err != nil {
-		return err
-	}
-	db, err := sql.Open("sqlite3", fileURI(path, "ro"))
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-	return newBackup(ctx, db, destination)
-}
-
-func newBackup(ctx context.Context, db *sql.DB, destination string) error {
 	if _, err := os.Lstat(destination); err == nil {
 		return fmt.Errorf("%s: %w", destination, os.ErrExist)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	// Linking the finished file also excludes a concurrent creator.
-	return copyDatabase(ctx, db, destination, os.Link)
+	return copyDatabase(ctx, source, destination, os.Link)
 }
 
-func copyDatabase(ctx context.Context, db *sql.DB, destination string, publish func(string, string) error) error {
+func noSidecars(path string) error {
+	for _, suffix := range []string{"-wal", "-shm", "-journal"} {
+		if _, err := os.Lstat(path + suffix); err == nil {
+			return fmt.Errorf("destination has an existing SQLite %s file", suffix)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+func copyDatabase(ctx context.Context, source, destination string, publish func(string, string) error) error {
 	dir, err := filepath.Abs(filepath.Dir(destination))
 	if err != nil {
 		return err
@@ -51,36 +49,48 @@ func copyDatabase(ctx context.Context, db *sql.DB, destination string, publish f
 	if err = tmp.Close(); err != nil {
 		return err
 	}
-	conn, err := db.Conn(ctx)
+	path, err := filepath.Abs(source)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
-	err = conn.Raw(func(raw any) error {
-		src := raw.(driver.Conn).Raw()
-		prev := src.SetInterrupt(ctx)
-		defer src.SetInterrupt(prev)
-		// Pin a WAL snapshot across steps so ongoing capture cannot restart the copy.
-		if err := src.Exec("BEGIN; SELECT count(*) FROM sqlite_schema"); err != nil {
-			return err
-		}
-		defer src.Exec("ROLLBACK")
-		backup, err := src.BackupInit("main", fileURI(tmp.Name(), "rw"))
-		if err != nil {
-			return err
-		}
-		for done := false; !done && err == nil; {
-			if err = ctx.Err(); err != nil {
-				break
-			}
-			done, err = backup.Step(128)
-		}
-		return errors.Join(err, backup.Close())
-	})
+	src, err := sqlite3.OpenFlags(fileURI(path, "ro"), sqlite3.OPEN_READONLY|sqlite3.OPEN_URI)
 	if err != nil {
 		return err
 	}
-	return publish(tmp.Name(), destination)
+	defer src.Close()
+	src.SetInterrupt(ctx)
+	// This dedicated reader pins one WAL snapshot while capture continues.
+	if err = src.Exec("BEGIN; SELECT count(*) FROM sqlite_schema"); err != nil {
+		return err
+	}
+	backup, err := src.BackupInit("main", fileURI(tmp.Name(), "rw"))
+	if err != nil {
+		return err
+	}
+	for done := false; !done && err == nil; {
+		if err = ctx.Err(); err != nil {
+			break
+		}
+		done, err = backup.Step(128)
+	}
+	if err = errors.Join(err, backup.Close()); err != nil {
+		return err
+	}
+	if err = noSidecars(destination); err != nil {
+		return err
+	}
+	if err = publish(tmp.Name(), destination); err != nil {
+		return err
+	}
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	parent, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer parent.Close()
+	return parent.Sync()
 }
 
 func (s *Store) ScheduleBackups(ctx context.Context, dir string, logger *log.Logger) {
@@ -106,17 +116,20 @@ func (s *Store) dailyBackup(ctx context.Context, dir string, day time.Time) erro
 	const prefix = "birdwatch-"
 	const suffix = ".sqlite3"
 	name := prefix + day.UTC().Format(time.DateOnly) + suffix
-	if err := newBackup(ctx, s.readers, filepath.Join(dir, name)); err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return nil
-		}
-		return err
-	}
-	entries, err := os.ReadDir(dir) // name order is chronological for UTC dates
+	source, err := os.Stat(s.path)
 	if err != nil {
 		return err
 	}
-	source, err := os.Stat(s.path)
+	destination := filepath.Join(dir, name)
+	if err := Backup(ctx, s.path, destination); err != nil {
+		if !errors.Is(err, os.ErrExist) {
+			return err
+		}
+		if err = existingDaily(ctx, destination, source); err != nil {
+			return err
+		}
+	}
+	entries, err := os.ReadDir(dir) // name order is chronological for UTC dates
 	if err != nil {
 		return err
 	}
@@ -148,6 +161,41 @@ func (s *Store) dailyBackup(ctx context.Context, dir string, day time.Time) erro
 		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
+	}
+	return nil
+}
+
+func existingDaily(ctx context.Context, path string, source os.FileInfo) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || os.SameFile(source, info) {
+		return errors.New("daily backup path is occupied")
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0077 != 0 {
+		return errors.New("daily backup permissions must be owner-only")
+	}
+	if err = noSidecars(path); err != nil {
+		return err
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	conn, err := sqlite3.OpenFlags(fileURI(abs, "ro")+"&immutable=1", sqlite3.OPEN_READONLY|sqlite3.OPEN_URI)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	conn.SetInterrupt(ctx)
+	stmt, _, err := conn.Prepare("SELECT count(*) FROM sqlite_schema WHERE type='table' AND name IN ('projects','events')")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	if !stmt.Step() || stmt.ColumnInt(0) != 2 {
+		return errors.New("daily backup path does not contain a Birdwatch database")
 	}
 	return nil
 }

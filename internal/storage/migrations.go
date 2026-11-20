@@ -80,5 +80,5 @@ func (s *Store) apply(ctx context.Context, from int, steps []string, backup bool
 }
 
 func (s *Store) backupVersion(ctx context.Context, version int) error {
-	return copyDatabase(ctx, s.readers, fmt.Sprintf("%s.v%d.bak", s.path, version), os.Rename)
+	return copyDatabase(ctx, s.path, fmt.Sprintf("%s.v%d.bak", s.path, version), os.Rename)
 }

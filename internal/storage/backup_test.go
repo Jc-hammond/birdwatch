@@ -37,6 +37,16 @@ func TestDailyBackupsPreserveCommittedRowsAndKeepSeven(t *testing.T) {
 	if _, err = os.Stat(old); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("old daily backup still present", err)
 	}
+	// A restart between publication and rotation must finish rotation.
+	if err = os.Link(filepath.Join(dest, "birdwatch-2026-01-02.sqlite3"), old); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.dailyBackup(ctx, dest, first.AddDate(0, 0, 7)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(old); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("same-day restart left an expired backup", err)
+	}
 	for day := 2; day <= 8; day++ {
 		path := filepath.Join(dest, fmt.Sprintf("birdwatch-2026-01-%02d.sqlite3", day))
 		db, err := sql.Open("sqlite3", fileURI(path, "ro"))
@@ -52,5 +62,26 @@ func TestDailyBackupsPreserveCommittedRowsAndKeepSeven(t *testing.T) {
 		if err = Backup(ctx, source, path); !errors.Is(err, os.ErrExist) {
 			t.Fatalf("existing snapshot overwrite: %v", err)
 		}
+	}
+}
+
+func TestBackupRefusesOrphanedJournal(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.sqlite3")
+	s, err := Open(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	dest := filepath.Join(dir, "copy.sqlite3")
+	if err = os.WriteFile(dest+"-wal", []byte("unrelated"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = Backup(ctx, source, dest); err == nil {
+		t.Fatal("published a backup next to an unrelated WAL")
+	}
+	if _, err = os.Stat(dest); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("a partial backup was left behind")
 	}
 }
