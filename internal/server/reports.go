@@ -315,17 +315,26 @@ func (q report) overview(end time.Time) (any, error) {
 			return nil, err
 		}
 		daily := "SELECT day,SUM(count) n,SUM(CASE WHEN event IN ('page_view','$pageview') THEN count ELSE 0 END) pages FROM counts GROUP BY day"
-		visitors := "0"
-		dailyArgs := append([]any{}, args...)
-		if i == 0 {
-			visitors = "SELECT COUNT(*) FROM daily_people p WHERE p.project_id=? AND p.day=d.day"
-			dailyArgs = append(dailyArgs, q.id)
-			if partial {
-				visitors += " AND (p.day<? OR p.first_ts<=?)"
-				dailyArgs = append(dailyArgs, stop.Format(time.DateOnly), stop.Format(stamp))
-			}
+		// A visitor's first active day in this window is the one whose
+		// predecessor lies before the window. Each visitor contributes once.
+		dayPeople := "SELECT COUNT(*) FROM daily_people p WHERE p.project_id=? AND p.day=d.day"
+		eligible := ""
+		endArgs := []any{}
+		if partial {
+			eligible = " AND (p.day<? OR p.first_ts<=?)"
+			endArgs = []any{stop.Format(time.DateOnly), stop.Format(stamp)}
 		}
-		rows, err := records(q.db, counts+"SELECT d.*,("+visitors+") people FROM ("+daily+") d", dailyArgs...)
+		dailyArgs := append([]any{}, args...)
+		dailyCount := "0"
+		if i == 0 {
+			dailyCount = dayPeople + eligible
+			dailyArgs = append(dailyArgs, q.id)
+			dailyArgs = append(dailyArgs, endArgs...)
+		}
+		windowCount := dayPeople + " AND p.previous_day<?" + eligible
+		dailyArgs = append(dailyArgs, q.id, start.Format(time.DateOnly))
+		dailyArgs = append(dailyArgs, endArgs...)
+		rows, err := records(q.db, counts+"SELECT d.*,("+dailyCount+") people,("+windowCount+") new_in_window FROM ("+daily+") d", dailyArgs...)
 		if err != nil {
 			return nil, err
 		}
@@ -334,31 +343,9 @@ func (q report) overview(end time.Time) (any, error) {
 		for _, row := range rows {
 			events, views := row["n"].(int64), row["pages"].(int64)
 			n += events
+			people += row["new_in_window"].(int64)
 			pages += views
 			days[row["day"].(string)] = metrics(events, row["people"].(int64), views)
-		}
-		window := "project_id=? AND day BETWEEN ? AND ?"
-		bounds := []any{q.id, start.Format(time.DateOnly), stop.Format(time.DateOnly)}
-		if partial {
-			window += " AND (day<? OR first_ts<=?)"
-			bounds = append(bounds, stop.Format(time.DateOnly), stop.Format(stamp))
-		}
-		if n > 0 {
-			// With a long history, bound the work by the requested days. When
-			// the range covers all activity, person order avoids a DISTINCT sort.
-			var outside bool
-			err = q.db.QueryRow("SELECT EXISTS(SELECT 1 FROM daily_events WHERE project_id=? AND day<?) OR EXISTS(SELECT 1 FROM daily_events WHERE project_id=? AND day>?)", q.id, start.Format(time.DateOnly), q.id, stop.Format(time.DateOnly)).Scan(&outside)
-			if err != nil {
-				return nil, err
-			}
-			index := "sqlite_autoindex_daily_people_1"
-			if outside {
-				index = "daily_people_day"
-			}
-			err = q.db.QueryRow("SELECT COUNT(DISTINCT distinct_id) FROM daily_people INDEXED BY "+index+" WHERE "+window, bounds...).Scan(&people)
-			if err != nil {
-				return nil, err
-			}
 		}
 		result[field] = metrics(n, people, pages)
 		if i != 0 {

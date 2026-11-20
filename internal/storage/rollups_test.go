@@ -31,7 +31,8 @@ func TestDailyRollupsMatchStoredEvents(t *testing.T) {
 	}
 	for table, grouped := range map[string]string{
 		"daily_events": "SELECT project_id,substr(timestamp,1,10),event,COUNT(*) FROM events GROUP BY 1,2,3",
-		"daily_people": "SELECT project_id,substr(timestamp,1,10),distinct_id,COUNT(*),MIN(timestamp),MAX(timestamp) FROM events GROUP BY 1,2,3",
+		"daily_people": `SELECT *,lag(day,1,'') OVER(PARTITION BY project_id,distinct_id ORDER BY day)
+ FROM (SELECT project_id,substr(timestamp,1,10) day,distinct_id,COUNT(*),MIN(timestamp),MAX(timestamp) FROM events GROUP BY 1,2,3)`,
 	} {
 		actual := "SELECT * FROM " + table
 		for _, pair := range [][2]string{{actual, grouped}, {grouped, actual}} {
