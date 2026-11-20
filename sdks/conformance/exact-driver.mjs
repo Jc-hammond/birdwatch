@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -63,6 +63,11 @@ export class ExactDriver {
         };
       },
     };
+    const local = (path) => join(this.dir, path.replace("app:/data/", "").replace("birdwatch.sqlite", "outbox.sqlite"));
+    this.storage = { sqlite: this.sqlite, fs: {
+      mkdir: (path) => mkdir(local(path), { recursive: true }),
+      rename: (from, to) => rename(local(from), local(to)),
+    } };
     const mod = { exports: {} };
     let sample = 0;
     const random = {
@@ -115,14 +120,16 @@ export class ExactDriver {
       },
     });
   }
-  flush(background = false) {
+  flush(background = false, token = 0) {
     const work = this.work;
     let task;
     task = this.client
-      .flush(this.sqlite, this.now, background)
+      .flush(this.storage, this.now, background, token)
       .then((outcome) => {
-        if (work === this.work && outcome.retryAfterMs !== undefined)
+        if (work === this.work && outcome.retryAfterMs !== undefined) {
           this.due = this.now + outcome.retryAfterMs;
+          this.retryToken = outcome.retryToken;
+        }
       })
       .finally(() => work.delete(task));
     work.add(task);
@@ -140,13 +147,13 @@ export class ExactDriver {
     while (this.due !== undefined && this.due <= until) {
       this.now = this.due;
       this.due = undefined;
-      this.flush();
+      this.flush(false, this.retryToken);
       await this.settle();
     }
     this.now = until;
   }
   async step(step) {
-    if (step.capture)
+    if (step.capture) {
       for (const id of step.capture)
         await this.client.enqueue(
           {
@@ -155,9 +162,10 @@ export class ExactDriver {
             distinctId: "test",
             timestamp: new Date(this.now).toISOString(),
           },
-          this.sqlite,
+          this.storage,
         );
-    else if (step.advanceMs !== undefined) await this.advance(step.advanceMs);
+      this.due ??= this.now + 60000;
+    } else if (step.advanceMs !== undefined) await this.advance(step.advanceMs);
     else if (step.clockAheadMs !== undefined) this.now += step.clockAheadMs;
     else
       switch (step) {
@@ -185,12 +193,7 @@ export class ExactDriver {
           this.collector.release();
           break;
         case "corruptOutbox": {
-          const db = new DatabaseSync(this.file);
-          try {
-            db.prepare("UPDATE events_v1 SET event=? WHERE uuid=?").run("{corrupt fixture", "corrupt-seed");
-          } finally {
-            db.close();
-          }
+          await writeFile(this.file, "{corrupt fixture");
           break;
         }
         default:
@@ -199,12 +202,10 @@ export class ExactDriver {
     await this.settle();
   }
   async quarantined() {
-    const db = new DatabaseSync(this.file);
-    try {
-      return !!db.prepare("SELECT 1 FROM corrupt_events WHERE event=?").get("{corrupt fixture");
-    } finally {
-      db.close();
-    }
+    const dir = join(this.dir, "birdwatch-quarantine");
+    for (const file of await readdir(dir).catch(() => []))
+      if ((await readFile(join(dir, file), "utf8")).includes("{corrupt fixture")) return true;
+    return false;
   }
   async close() {
     this.generation++;

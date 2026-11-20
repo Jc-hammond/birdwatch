@@ -14,30 +14,30 @@ function integer(
     invalid(`${field} must be an integer from ${min} to ${max}.`);
   return value;
 }
+const hostError = "Use an HTTP(S) host without credentials, query or fragment.";
+
 export function captureEndpoint(host: string) {
+  // Exact and React Native also run on hosts with partial WHATWG URL support.
+  const match = typeof host === "string" &&
+    /^https?:\/\/(?:\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::([0-9]{1,5}))?(?:\/[^?#\\\s]*)?$/i.exec(host);
+  if (!match || Number(match[1] ?? 0) > 65535)
+    invalid(hostError);
+  return host.replace(/\/+$/, "") + "/api/capture";
+}
+
+function browserEndpoint(host: string) {
   let url: URL;
   try {
     url = new URL(host);
   } catch {
-    return invalid("host must be an absolute HTTP(S) URL.");
+    return invalid(hostError);
   }
-  if (
-    !["http:", "https:"].includes(url.protocol) ||
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash
-  )
-    invalid(
-      "host must be an HTTP(S) URL without credentials, a query, or a fragment."
-    );
-  url.pathname = url.pathname.replace(/\/+$/, "") + "/api/capture";
-  return url.href;
+  return captureEndpoint(url.href);
 }
 
 export function configure(
   options: ClientOptions,
-  endpointFor = captureEndpoint
+  endpointFor = browserEndpoint
 ) {
   if (!options || typeof options.host !== "string")
     invalid("Provide a host and project writeKey.");
@@ -48,7 +48,10 @@ export function configure(
   if (options.onError !== undefined && typeof options.onError !== "function")
     invalid("onError must be a function.");
   return {
-    onError: options.onError,
+    report(error: BirdwatchError) {
+      try { void Promise.resolve(options.onError?.(error)).catch(() => {}); }
+      catch { /* Observers do not change delivery outcomes. */ }
+    },
     endpoint,
     key: stringField(options.writeKey, "writeKey", 128),
     fetch: fetcher,
@@ -75,6 +78,12 @@ export class DeliveryFailure extends BirdwatchError {
   ) {
     super("http", "Collector did not acknowledge this batch.", status);
   }
+}
+
+/** A rejected attempt uses Retry-After when available, otherwise full jitter. */
+export function retryDelay(error: unknown, failures: number, random = Math.random) {
+  if (error instanceof DeliveryFailure && error.retryAfter !== undefined) return error.retryAfter;
+  return random() * (1000 * Math.min(60, 2 ** failures));
 }
 
 export function payload(key: string, rows: { json: string }[], sentAt = new Date().toISOString()) {

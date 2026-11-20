@@ -11,20 +11,40 @@ shape Saved
 shape Receipt
   accepted: number
   duplicates: number
+  retryToken: number
+  retryAfterMs: number
 
 component App
   resource page = exactPage() as shape Page
   resource time = exactTime() as shape Time
   mutation saved as shape Saved then sync
-  mutation hiddenDelivery as shape Receipt
-  mutation delivery as shape Receipt
+  mutation hiddenDelivery as shape Receipt then arm
+  mutation delivery as shape Receipt then arm
+  state retried = 0
+  state armed = 0
+  state deadline = 0
+  derive foregroundToken = match delivery { case some(r) => r.retryToken, case none => 0 }
+  derive hiddenToken = match hiddenDelivery { case some(r) => r.retryToken, case none => 0 }
+  derive latest = max(foregroundToken, hiddenToken)
+  derive delay = foregroundToken > hiddenToken ? (match delivery { case some(r) => r.retryAfterMs, case none => 0 }) : (match hiddenDelivery { case some(r) => r.retryAfterMs, case none => 0 })
+  action arm
+    if latest > armed
+      armed = latest
+      deadline = performanceNow() + delay
+  action retry
+    if performanceNow() >= deadline and not pending(delivery)
+      send delivery = replay(time.epochAtZero + performanceNow(), false, armed)
+      retried = armed
+  task backoff when armed > retried
+    every(50, retry)
   action complete
     send saved = recordCompletion("demo-user", "demo-user:onboarding-v1", time.epochAtZero + performanceNow())
   action sync
-    if not pending(delivery)
-      send delivery = replay(time.epochAtZero + performanceNow(), false)
+    if latest <= retried and not pending(delivery)
+      send delivery = replay(time.epochAtZero + performanceNow(), false, 0)
   action hide
-    send hiddenDelivery = replay(time.epochAtZero + performanceNow(), true)
+    if latest <= retried
+      send hiddenDelivery = replay(time.epochAtZero + performanceNow(), true, 0)
   task hid when page.visibilityState == "hidden"
     after(1, hide)
   task launch mount

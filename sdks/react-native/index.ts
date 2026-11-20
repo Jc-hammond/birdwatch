@@ -7,8 +7,10 @@ import {
 } from "./outbox.js";
 export type { IdentityStorage } from "./outbox.js";
 import {
+  captureEndpoint,
   configure,
   payload,
+  retryDelay,
   send,
   DeliveryFailure,
 } from "../../sdk/src/transport.js";
@@ -62,7 +64,7 @@ export interface NativeClient<C extends CatalogShape<C>> extends Lifecycle {
 export async function createReactNativeClient<
   C extends CatalogShape<C> = EventCatalog,
 >(options: NativeOptions): Promise<NativeClient<C>> {
-  const config = configure(options);
+  const config = configure(options, captureEndpoint);
   const retries = options.maxRetries ?? 2;
   if (!Number.isInteger(retries) || retries < 0 || retries > 5)
     invalid("maxRetries must be an integer from 0 to 5.");
@@ -76,13 +78,7 @@ export async function createReactNativeClient<
       "generated ID",
       128,
     );
-  function report(error: BirdwatchError) {
-    try {
-      void Promise.resolve(config.onError?.(error)).catch(() => {});
-    } catch {
-      /* observer */
-    }
-  }
+  const { report } = config;
   const box = new Outbox(
     storage,
     "birdwatch:outbox:v1:" + scope,
@@ -122,7 +118,7 @@ export async function createReactNativeClient<
     online = true;
   let paused: BirdwatchError | undefined,
     lastFailure: BirdwatchError | undefined;
-  let ceiling = 1000,
+  let failures = 0,
     retryAt = 0;
   let retry: Row[] = [];
   const budget = 1048576 - utf8Length(payload(config.key, []));
@@ -174,11 +170,8 @@ export async function createReactNativeClient<
     }
     retry = [...kept.values()].sort((a, b) => a.sequence - b.sequence);
     if (!retry.length) return;
-    const delay =
-      (failure instanceof DeliveryFailure ? failure.retryAfter : undefined) ??
-      Math.random() * ceiling;
-    ceiling = Math.min(60000, ceiling * 2);
-    retryAt = Date.now() + Math.ceil(delay);
+    const delay = retryDelay(failure, failures++);
+    retryAt = Math.max(retryAt, Date.now() + Math.ceil(delay));
     lastFailure = failure;
     cancel();
     schedule(delay);
@@ -241,7 +234,7 @@ export async function createReactNativeClient<
       });
       overflow = false;
       if (!retry.length) {
-        ceiling = 1000;
+        failures = 0;
         retryAt = 0;
       }
       return firstRejection;
