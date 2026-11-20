@@ -1,0 +1,16 @@
+name: Feature request
+description: Suggest a change to Birdwatch.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the task and where the current behavior gets in your way.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What result would help?
+    validations:
+      required: true
