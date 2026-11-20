@@ -35,7 +35,10 @@ function browserEndpoint(host: string) {
   return url.href;
 }
 
-export function configure(options: ClientOptions, endpointFor = browserEndpoint) {
+export function configure(
+  options: ClientOptions,
+  endpointFor = browserEndpoint
+) {
   if (!options || typeof options.host !== "string")
     invalid("Provide a host and project writeKey.");
   const endpoint = endpointFor(options.host);
@@ -59,121 +62,125 @@ export function configure(options: ClientOptions, endpointFor = browserEndpoint)
     ),
     maxQueue: integer(options.maxQueueSize, 1000, 1, 100_000, "maxQueueSize"),
     timeout: integer(options.timeoutMs, 5000, 1, 120_000, "timeoutMs"),
-    retries: integer(options.maxRetries, 2, 0, 5, "maxRetries"),
   };
 }
 
 export type Config = ReturnType<typeof configure>;
-export const MAX_BODY_BYTES = 48 * 1024;
 
-class HttpFailure extends BirdwatchError {
-  constructor(status: number, message: string, readonly retryAfter: number) {
-    super("http", message, status);
+export class DeliveryFailure extends BirdwatchError {
+  constructor(
+    readonly outcome: "retry" | "pause" | "drop",
+    status?: number,
+    readonly retryAfter?: number
+  ) {
+    super("http", "Collector did not acknowledge this batch.", status);
   }
 }
 
-function retryDelay(header: string | null): number {
-  if (header === null) return 0;
-  const ms = /^\d+(\.\d+)?$/.test(header)
-    ? Number(header) * 1000
-    : Date.parse(header) - Date.now();
-  return Number.isNaN(ms) ? 0 : Math.max(0, ms);
+export function payload(key: string, rows: { json: string }[]) {
+  return (
+    '{"api_key":' +
+    JSON.stringify(key) +
+    ',"sent_at":"' +
+    new Date().toISOString() +
+    '","batch":[' +
+    rows.map((e) => e.json).join(",") +
+    "]}"
+  );
 }
 
-async function attempt(
+export async function send(
   config: Config,
   body: string,
-  count: number
-): Promise<BatchCounts> {
+  count: number,
+  browser: boolean,
+  keepalive: boolean
+) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.timeout);
   try {
     const fetcher = config.fetch;
     const response = await fetcher(config.endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       body,
+      headers: { "Content-Type": browser ? "text/plain" : "application/json" },
       signal: controller.signal,
       credentials: "omit",
       referrerPolicy: "no-referrer",
-      keepalive: true,
+      keepalive,
       redirect: "error",
     });
-    if (!response.ok) {
-      let detail;
-      try {
-        detail = (await response.json()).error;
-      } catch {
-        /* Proxies may return HTML. */
-      }
-      throw new HttpFailure(
-        response.status,
-        typeof detail === "string"
-          ? detail
-          : `Collector returned HTTP ${response.status}.`,
-        retryDelay(response.headers.get("Retry-After"))
-      );
-    }
     const ack = await response.json().catch(() => null);
-    if (
-      !ack ||
-      !Number.isSafeInteger(ack.accepted) ||
-      !Number.isSafeInteger(ack.duplicates) ||
-      ack.accepted < 0 ||
-      ack.duplicates < 0 ||
-      ack.accepted + ack.duplicates !== count
-    ) {
-      throw new BirdwatchError(
-        "invalid_response",
-        "Collector returned an invalid acknowledgement."
+    if (response.status !== 200) {
+      const status = response.status;
+      const header = response.headers.get("Retry-After");
+      const wait =
+        header === null
+          ? NaN
+          : /^\d+(\.\d+)?$/.test(header)
+            ? Number(header) * 1000
+            : Date.parse(header) - Date.now();
+      const outcome =
+        status >= 500 || status === 429 || status === 408
+          ? "retry"
+          : ack?.code === "unknown_key"
+            ? "pause"
+            : ack?.code === "invalid_event" || ack?.code === "too_large"
+              ? "drop"
+              : "retry";
+      throw new DeliveryFailure(
+        outcome,
+        status,
+        Number.isNaN(wait) ? undefined : Math.min(300000, Math.max(0, wait))
       );
     }
-    return Object.freeze({
-      accepted: ack.accepted,
-      duplicates: ack.duplicates,
-    });
-  } catch (cause) {
-    if (controller.signal.aborted)
-      throw new BirdwatchError(
-        "timeout",
-        "Capture request timed out.",
-        undefined,
-        { cause }
+    const rejected = new Map<number, BirdwatchError>();
+    const invalidAck = () =>
+      new BirdwatchError(
+        "invalid_response",
+        "Invalid collector acknowledgement."
       );
-    if (cause instanceof BirdwatchError) throw cause;
+    if (!Array.isArray(ack?.rejected ?? [])) throw invalidAck();
+    for (const r of ack?.rejected ?? []) {
+      if (
+        !Number.isInteger(r?.index) ||
+        r.index < 0 ||
+        r.index >= count ||
+        rejected.has(r.index) ||
+        !["invalid_event", "too_large"].includes(r.code)
+      )
+        throw invalidAck();
+      rejected.set(
+        r.index,
+        new BirdwatchError(
+          "http",
+          "The collector rejected this event.",
+          r.code === "too_large" ? 413 : 400
+        )
+      );
+    }
+    if (
+      !Number.isSafeInteger(ack?.accepted) ||
+      ack.accepted < 0 ||
+      !Number.isSafeInteger(ack.duplicates) ||
+      ack.duplicates < 0 ||
+      ack.accepted + ack.duplicates + rejected.size !== count
+    )
+      throw invalidAck();
+    return {
+      counts: Object.freeze({
+        accepted: ack.accepted,
+        duplicates: ack.duplicates,
+      }) as BatchCounts,
+      rejected,
+    };
+  } catch (error) {
+    if (error instanceof BirdwatchError) throw error;
     throw new BirdwatchError(
-      "network",
-      "Could not reach the Birdwatch collector.",
-      undefined,
-      { cause }
+      controller.signal.aborted ? "timeout" : "network",
+      "Capture request failed."
     );
   } finally {
     clearTimeout(timer);
-  }
-}
-
-export async function transmit(
-  config: Config,
-  body: string,
-  count: number
-): Promise<BatchCounts> {
-  for (let retry = 0; ; retry++) {
-    try {
-      return await attempt(config, body, count);
-    } catch (error) {
-      const http = error instanceof HttpFailure;
-      const transient = http
-        ? error.status === 408 || error.status === 429 || error.status! >= 500
-        : error instanceof BirdwatchError &&
-          ["network", "timeout", "invalid_response"].includes(error.code);
-      if (!transient || retry === config.retries) throw error;
-      const delay = Math.max(
-        http ? error.retryAfter : 0,
-        (0.5 + Math.random() / 2) * 200 * 2 ** retry
-      );
-      // A long Retry-After ends delivery explicitly rather than retrying too early.
-      if (delay > 30_000) throw error;
-      await new Promise((resolve) => setTimeout(resolve, delay));
-    }
   }
 }
