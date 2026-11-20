@@ -23,6 +23,7 @@ archives: js-sdk android-release
 
 dashboard: archives
 	npm run build --workspace birdwatch-ui
+	$(GO) run ./internal/dashboard/generate.go
 
 # Compare tracked changes across the run so tests also work with local edits.
 test:
@@ -31,8 +32,9 @@ test:
 	test "$$before" = "$$(git diff --binary HEAD | git hash-object --stdin)" || \
 	{ echo "Tests failed or tracked files changed during the run." >&2; exit 1; }
 
-test-server:
+test-server: build
 	BIRDWATCH_REFERENCE=python BIRDWATCH_SERVER_CMD="$(PYTHON) server.py" $(GO) test -count=1 ./...
+	BIRDWATCH_SERVER_CMD=./build/birdwatch $(GO) test -count=1 -run '^TestDashboardAssets$$' ./contract
 
 test-js: js-sdk
 	npm test --workspace @birdwatch/sdk
@@ -45,7 +47,7 @@ test-swift:
 test-android:
 	cd sdks/android && ./gradlew assemble
 
-lint: js-sdk
+lint: dashboard
 	$(GO) vet ./...
 	npm exec -- tsc --project sdk/test/tsconfig.json
 	git diff --check

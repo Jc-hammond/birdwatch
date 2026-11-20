@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"runtime/debug"
 	"time"
+
+	"github.com/Jc-hammond/birdwatch/internal/dashboard"
 )
 
 const maxBody = 1 << 20
@@ -43,12 +45,14 @@ func (f failure) Error() string { return f.Message }
 var internalError = failure{500, "internal", "Unexpected server error. Retry the request."}
 var tooLargeError = failure{413, "too_large", "Limit the request body to 1 MiB."}
 
-func handle(w http.ResponseWriter, r *http.Request, methods map[string]endpoint) (any, error) {
+var assetMethods = map[string]endpoint{http.MethodGet: nil, http.MethodHead: nil}
+
+func resolve(w http.ResponseWriter, r *http.Request, methods map[string]endpoint) (endpoint, error) {
 	if methods == nil {
 		return nil, failure{404, "not_found", "Unknown endpoint. Check the request path."}
 	}
-	fn := methods[r.Method]
-	if fn == nil {
+	fn, allowed := methods[r.Method]
+	if !allowed {
 		for method := range methods {
 			w.Header().Add("Allow", method)
 		}
@@ -74,14 +78,18 @@ func handle(w http.ResponseWriter, r *http.Request, methods map[string]endpoint)
 		}
 		r.Body = io.NopCloser(bytes.NewReader(body))
 	}
-	return fn(r)
+	return fn, nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	pattern := "unmatched"
 	methods := s.routes[r.URL.Path]
-	if methods != nil {
+	asset := dashboard.Lookup(r.URL.Path)
+	if asset != nil {
+		pattern = "dashboard"
+		methods = assetMethods
+	} else if methods != nil {
 		// Only exact, registered paths reach the log.
 		pattern = r.URL.Path
 	}
@@ -102,7 +110,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		status = writeJSON(w, 503, failure{503, "unavailable", "Server is busy. Retry in one second."})
 		return
 	}
-	body, err := handle(w, r, methods)
+	var body any
+	fn, err := resolve(w, r, methods)
+	if err == nil {
+		if asset != nil {
+			status = asset.Serve(w, r)
+			return
+		}
+		body, err = fn(r)
+	}
 	if err != nil {
 		var f failure
 		if !errors.As(err, &f) {
