@@ -38,7 +38,7 @@ test-server: build
 
 test-js: js-sdk
 	npm test --workspace @birdwatch/sdk
-	node --test sdks/conformance/web.test.mjs
+	node --test sdks/conformance/web.test.mjs sdks/conformance/native.test.mjs
 	node --test sdks/test/*.test.mjs
 	npm run build --workspace birdwatch-ui -- --outDir ../build/ui-check
 
