@@ -42,7 +42,7 @@ Copy the snippet from **Setup** into each page you want to track. Use a Birdwatc
         data-key="YOUR_PROJECT_WRITE_KEY" data-pageview="true"></script>
 ```
 
-With `data-pageview="true"`, the script records the URL path once per full page load. In a single-page app, call `birdwatch.page()` after a route change. The script keeps an anonymous ID in local storage for each project.
+With `data-pageview="true"`, the script records the URL path once per full page load. In a single-page app, call `birdwatch.capture("page_view", { path: location.pathname })` after a route change. The script keeps an anonymous ID in local storage for each project.
 
 Call `identify()` after sign-in to associate future events with your app’s user ID. Call `reset()` at sign-out to start a new anonymous identity.
 

@@ -57,29 +57,18 @@ export interface Receipt {
 }
 
 export interface Lifecycle {
-  /** Wait for all events outstanding at call time. Rejects after all have settled if any failed. */
   flush(): Promise<void>;
-  /** Stop accepting events and drain the queue. Safe to call more than once. */
-  shutdown(): Promise<void>;
+  close(): Promise<void>;
+  onError(handler: (error: BirdwatchError) => void): void;
 }
+export type CaptureArgs<P, O = CaptureOptions> = {} extends P
+  ? [properties?: P, options?: O]
+  : [properties: P, options?: O];
 
-export type CaptureArgs<P> = {} extends P
-  ? [properties?: P, options?: CaptureOptions]
-  : [properties: P, options?: CaptureOptions];
-
-export interface BrowserClient<C extends CatalogShape<C> = EventCatalog>
-  extends Lifecycle {
-  readonly distinctId: string;
-  /** Change identity for future events. Queued events retain their original identity. */
-  identify(distinctId: string): void;
-  /** Generate a new anonymous identity, typically on logout. */
+export interface BrowserClient<C extends CatalogShape<C> = EventCatalog> extends Lifecycle {
+  identify(distinctId: string, traits?: Properties): void;
   reset(): void;
-  capture<N extends EventName<C>>(
-    event: N,
-    ...args: CaptureArgs<C[N]>
-  ): Promise<Receipt>;
-  /** Record a page_view with the current pathname. Query parameters and fragments are omitted. */
-  page(options?: CaptureOptions): Promise<Receipt>;
+  capture<N extends EventName<C>>(name: N, ...args: CaptureArgs<C[N]>): Promise<string>;
 }
 
 export type ServerEvent<C> = {
@@ -89,10 +78,10 @@ export type ServerEvent<C> = {
   } & ({} extends C[N] ? { properties?: C[N] } : { properties: C[N] });
 }[EventName<C>];
 
-export interface ServerClient<C extends CatalogShape<C> = EventCatalog>
-  extends Lifecycle {
-  /** Pass identity per event so one server client can serve concurrent requests. */
-  capture(input: ServerEvent<C>): Promise<Receipt>;
+export interface ServerClient<C extends CatalogShape<C> = EventCatalog> extends Lifecycle {
+  identify(distinctId: string, traits?: Properties): void;
+  reset(): void;
+  capture<N extends EventName<C>>(name: N, ...args: CaptureArgs<C[N], CaptureOptions & { distinctId?: string }>): Promise<string>;
 }
 
 export type ErrorCode =

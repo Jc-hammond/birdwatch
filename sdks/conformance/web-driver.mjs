@@ -108,10 +108,10 @@ export class WebDriver {
   async capture(id) {
     const name = this.config.generatedIds ? id : "example";
     const options = this.config.generatedIds ? {} : {id};
-    if (this.nativeBundle) { await this.client.enqueue(name,{},options); return; }
+    if (this.nativeBundle) { await this.client.capture(name,{},options); return; }
     const result = this.config.browser
       ? this.client.capture(name, {}, options)
-      : this.client.capture({event:name,distinctId:"test",...options});
+      : this.client.capture(name, {}, {distinctId:"test",...options});
     void result.catch(() => {});
   }
 

@@ -2,6 +2,9 @@ shape Time
   epochAtZero: number
   utcOffset: number
 
+shape ClockSample
+  at: number
+
 shape Page
   visibilityState: string
 
@@ -21,6 +24,11 @@ component App
   mutation saved as shape Saved then sync
   mutation hiddenDelivery as shape Receipt then arm
   mutation delivery as shape Receipt then arm
+  mutation clockSample as shape ClockSample
+  action sample
+    send clockSample = sampleClock(time.epochAtZero + performanceNow())
+  task sampleSends when pending(delivery)
+    every(50, sample)
   state armed = 0
   state deadline = -1
   derive foregroundToken = match delivery { case some(r) => r.retryToken, case none => 0 }
