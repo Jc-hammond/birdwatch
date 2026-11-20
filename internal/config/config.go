@@ -9,11 +9,12 @@ import (
 )
 
 type Config struct {
-	Host     string
-	Port     int
-	DB       string
-	Password string
-	NoDemo   bool
+	Host      string
+	Port      int
+	DB        string
+	Password  string
+	NoDemo    bool
+	BackupDir string
 }
 
 func env(name, fallback string) string {
@@ -23,12 +24,15 @@ func env(name, fallback string) string {
 	return fallback
 }
 
+func DatabasePath() string { return env("DB", "data/birdwatch.sqlite3") }
+
 func Parse(args []string) (Config, error) {
 	c := Config{Password: os.Getenv("BIRDWATCH_PASSWORD")}
 	flags := flag.NewFlagSet("birdwatch", flag.ContinueOnError)
 	flags.StringVar(&c.Host, "host", env("HOST", "127.0.0.1"), "address to listen on")
 	port := flags.String("port", env("PORT", "8123"), "port to listen on")
-	flags.StringVar(&c.DB, "db", env("DB", "data/birdwatch.sqlite3"), "SQLite database path")
+	flags.StringVar(&c.DB, "db", DatabasePath(), "SQLite database path")
+	flags.StringVar(&c.BackupDir, "backup-dir", env("BACKUP_DIR", ""), "directory for daily backups")
 	flags.BoolVar(&c.NoDemo, "no-demo", false, "start without the sample project")
 	if err := flags.Parse(args); err != nil {
 		return c, err

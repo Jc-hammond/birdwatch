@@ -20,17 +20,36 @@ import (
 )
 
 func run() error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if len(os.Args) > 1 && os.Args[1] == "backup" {
+		flags := flag.NewFlagSet("birdwatch backup", flag.ContinueOnError)
+		source := flags.String("db", config.DatabasePath(), "SQLite database to back up")
+		if err := flags.Parse(os.Args[2:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 1 {
+			return errors.New("usage: birdwatch backup [--db source] <destination>")
+		}
+		return storage.Backup(ctx, *source, flags.Arg(0))
+	}
 	cfg, err := config.Parse(os.Args[1:])
 	if err != nil {
 		return err
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	db, err := storage.Open(ctx, cfg.DB)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
+	if cfg.BackupDir != "" {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			db.ScheduleBackups(ctx, cfg.BackupDir, log.Default())
+		}()
+		defer func() { stop(); <-done }()
+	}
 	listener, err := net.Listen("tcp", net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)))
 	if err != nil {
 		return err
