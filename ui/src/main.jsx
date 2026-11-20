@@ -168,6 +168,34 @@ function Sidebar({
     </>
   );
 }
+function ThemeSwitch() {
+  const root = document.documentElement;
+  const [theme, setTheme] = useState(() => root.dataset.theme || "system");
+  function change(next) {
+    if (next === "system") delete root.dataset.theme;
+    else root.dataset.theme = next;
+    setTheme(next);
+    try {
+      if (next === "system") localStorage.removeItem("birdwatch.theme");
+      else localStorage.setItem("birdwatch.theme", next);
+    } catch {
+      // The selection still works for this page when storage is unavailable.
+    }
+  }
+  return (
+    <select
+      className="theme-switch"
+      aria-label="Theme"
+      title="Theme"
+      value={theme}
+      onChange={(event) => change(event.target.value)}
+    >
+      <option value="system">System</option>
+      <option value="light">Light</option>
+      <option value="dark">Dark</option>
+    </select>
+  );
+}
 function App() {
   const [loc, setLoc] = useState(route),
     [refresh, setRefresh] = useState(0),
@@ -243,16 +271,19 @@ function App() {
             <i>/</i>
             <b>{view}</b>
           </div>
-          <span className="status">
-            <i
-              className={"dot " + (state.error || !project ? "offline" : "")}
-            />
-            {state.error
-              ? "Disconnected"
-              : project
-              ? "Connected"
-              : "Connecting"}
-          </span>
+          <div className="header-settings">
+            <ThemeSwitch />
+            <span className="status">
+              <i
+                className={"dot " + (state.error || !project ? "offline" : "")}
+              />
+              {state.error
+                ? "Disconnected"
+                : project
+                ? "Connected"
+                : "Connecting"}
+            </span>
+          </div>
         </header>
         <main id="content" tabIndex="-1">
           <header className="page-header">
