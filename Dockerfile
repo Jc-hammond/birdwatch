@@ -19,11 +19,11 @@ COPY internal internal
 COPY --from=dashboard /src/static static
 COPY --from=dashboard /src/ui/public/assets ui/public/assets
 RUN go run ./internal/dashboard/generate.go && CGO_ENABLED=0 go build -trimpath -o /birdwatch ./cmd/birdwatch
-RUN mkdir /data && chown 10001:10001 /data
+RUN mkdir -p /runtime/data /runtime/tmp && chmod 0700 /runtime/data /runtime/tmp
 
 FROM scratch
 COPY --from=server /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=server --chown=10001:10001 /data /data
+COPY --from=server --chown=10001:10001 /runtime/ /
 COPY --from=server /birdwatch /birdwatch
 COPY LICENSE THIRD_PARTY_NOTICES.txt /licenses/
 USER 10001:10001

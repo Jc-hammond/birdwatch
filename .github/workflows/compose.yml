@@ -15,7 +15,13 @@ jobs:
           set -euo pipefail
           export BIRDWATCH_PASSWORD="$(openssl rand -hex 24)"
           echo "::add-mask::$BIRDWATCH_PASSWORD"
-          trap 'docker compose down --volumes' EXIT
+          cleanup() {
+            result=$?
+            if (( result != 0 )); then docker compose logs --no-color birdwatch; fi
+            docker compose down --volumes
+            exit "$result"
+          }
+          trap cleanup EXIT
           docker compose up --build -d
           base=http://127.0.0.1:8123
           ready() { curl -fsS --retry 45 --retry-all-errors --retry-delay 1 "$base/healthz" >/dev/null; }
