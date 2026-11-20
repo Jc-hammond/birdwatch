@@ -167,7 +167,15 @@ export function exactOutbox(scope: string, capacity: number, overhead: number,
   }
   function flush(storage: ExactStorage, clock: () => number | Promise<number>, background = false, retryToken = 0): Promise<typeof empty> {
     if (paused || waiting !== retryToken) return Promise.resolve(empty);
-    if (!background && !retryToken && running) return running;
+    if (!background && !retryToken && running) {
+      // The previous drain may have taken its snapshot before this caller's
+      // final admission. Once it succeeds, cover the later snapshot as well.
+      return running.then(async prior => {
+        if (prior.retryToken || paused || waiting) return prior;
+        const next = await flush(storage, clock);
+        return { ...next, accepted: prior.accepted + next.accepted, duplicates: prior.duplicates + next.duplicates };
+      });
+    }
     const bound = retryThrough;
     retryThrough = undefined;
     waiting = wait = retryAt = 0;
