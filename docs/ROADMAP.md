@@ -44,6 +44,7 @@ Feature count is deliberately not a claim.
 | Session replay | Deferred |
 | Name and namespaces | Birdwatch stays. npm scope `@birdwatch` if it can be claimed, otherwise `@birdwatch-analytics`. Maven group `io.github.jc-hammond`. Docker image `ghcr.io/jc-hammond/birdwatch` |
 | Specifications | Written by the maintainer with Claude in a session, one release at a time. All of 0.5 is specified |
+| Full SDK queue | Drops the oldest events and reports it once through `onError` |
 | Old databases | No migration from databases made by the Python server |
 | Website | A hand-written static site with no build step, in `website/`. The maintainer publishes it as a Codex Site; agents never publish it |
 | Starting work | The maintainer starts one session per issue |
