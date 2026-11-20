@@ -56,48 +56,61 @@ export function ago(time, asOf) {
   return Math.floor(seconds / 86400) + "d ago";
 }
 export async function api(path, body, signal) {
-  const res = await fetch(
-    path,
-    body
-      ? {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-          signal,
-        }
-      : { signal }
-  );
-  const result = await res.json();
-  if (!res.ok) throw new Error(result.error || "Request failed");
+  let res;
+  try {
+    res = await fetch(path, body ? {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body), signal,
+    } : { signal });
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    throw new Error("Cannot reach Birdwatch. Check that the server is running.");
+  }
+  let result;
+  try {
+    result = await res.json();
+  } catch {
+    throw new Error(`Birdwatch returned an unreadable response (HTTP ${res.status}). Check the server or proxy.`);
+  }
+  if (!res.ok) {
+    const error = new Error(typeof result?.error === "string" ? result.error : `Request failed (HTTP ${res.status}).`);
+    error.code = result?.code;
+    throw error;
+  }
   return result;
 }
 export function useData(url, refresh = 0, poll = 0) {
   const [state, setState] = useState({});
   useEffect(() => {
     if (!url) return;
-    let active = true,
-      timer;
-    const controller = new AbortController();
+    let timer, request;
+    const stop = () => {
+      clearTimeout(timer);
+      request?.abort();
+    };
     async function load() {
+      stop();
+      if (document.hidden) return;
+      const controller = new AbortController();
+      request = controller;
+      let failed = false;
       try {
         const data = await api(url, null, controller.signal);
-        if (active) setState({ url, data });
+        if (!controller.signal.aborted) setState({ url, data });
       } catch (e) {
-        if (active)
-          setState((old) => ({
-            url,
-            data: old.url === url ? old.data : undefined,
-            error: e.message,
-          }));
+        failed = e.code !== "cursor_expired";
+        if (!controller.signal.aborted)
+          setState((old) => ({ url, data: failed && old.url === url ? old.data : undefined, error: e.message, code: e.code }));
       } finally {
-        if (active && poll) timer = setTimeout(load, poll);
+        if (!controller.signal.aborted && (poll || failed))
+          timer = setTimeout(load, poll || 5000);
       }
     }
     load();
+    document.addEventListener("visibilitychange", load);
     return () => {
-      active = false;
-      clearTimeout(timer);
-      controller.abort();
+      stop();
+      document.removeEventListener("visibilitychange", load);
     };
   }, [url, refresh, poll]);
   return state.url === url ? state : {};

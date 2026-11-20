@@ -191,6 +191,16 @@ Access-Control-Max-Age: 86400
 
 Capture never reads or sets cookies and never allows credentials.
 
+## Report row counts
+
+For an Events or People listing, append `include_total=1` to the first request.
+The additional integer `total` counts all matching rows in the same project,
+UTC range, filters and database snapshot as that page. Keep this total while
+following the returned cursor. Omit `include_total` on subsequent pages and
+on requests that only need rows. Passing it with a cursor returns HTTP 400.
+Events counts surviving raw rows. People includes visitors whose activity in
+the requested range survives in daily summaries.
+
 ## Project retention and erasure
 
 The owner can set a project's raw event lifetime with `PATCH /api/projects/{id}`.

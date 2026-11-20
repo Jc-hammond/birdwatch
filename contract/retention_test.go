@@ -73,6 +73,19 @@ func TestProjectRetention(t *testing.T) {
 	check(t, "snapshot after later capture", decode[struct{ Rows []object }](t, s.report(t, paged, later)).Rows, rows)
 	s.expect(t, 200, "DELETE", projectPath(paged.id, "people/"+url.PathEscape(person)), nil, nil)
 	check(t, "erased snapshot", errorBody(t, s.expect(t, 409, "GET", projectPath(paged.id, later), nil, nil)).Code, "cursor_expired")
+	// Exact Events totals cover surviving rows. People retains archived activity.
+	batch = nil
+	for i := range 35 {
+		batch = append(batch, event("old", "current"+strconv.Itoa(i)))
+	}
+	s.capture(t, paged, object{"batch": batch}, 200)
+	for _, tc := range []struct {
+		path string
+		want int
+	}{{"events?q=old", 35}, {"people?q=guest", 31}, {"people?days=7", 66}} {
+		got := decode[struct{ Total int }](t, s.report(t, paged, tc.path+"&include_total=1"))
+		check(t, tc.path+" after expiry and erasure", got.Total, tc.want)
+	}
 }
 
 func TestErasePerson(t *testing.T) {

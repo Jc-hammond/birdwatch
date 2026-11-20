@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   ChevronLeft,
@@ -18,24 +18,47 @@ import {
 } from "./lib";
 
 export function Explorer({ view, project, days, filters, go, inspect }) {
-  const isPeople = view === "People";
-  const [q, setQ] = useState(""),
-    [search, setSearch] = useState(""),
-    [pages, setPages] = useState([]),
-    [pageIndex, setPageIndex] = useState(0);
-  const offset = pageIndex * 30;
+  const search = filters.q || "";
+  const [query, setQuery] = useState(search);
+  const editing = useRef(false);
   useEffect(() => {
-    const t = setTimeout(() => {
-      if (q.trim() !== search) {
-        setSearch(q.trim());
-        setPageIndex(0);
-        setPages([]);
-      }
+    const timer = setTimeout(() => {
+      setQuery(search);
+      editing.current = false;
     }, 180);
-    return () => clearTimeout(t);
-  }, [q, search]);
-  const params = new URLSearchParams({ days, q: search, ...filters });
+    return () => clearTimeout(timer);
+  }, [search]);
+  function change(value) {
+    const { q, ...other } = filters;
+    go(view, value ? { ...other, q: value } : other, editing.current);
+    editing.current = true;
+  }
+  return (
+    <section className="card explorer">
+      <header className="table-toolbar">
+        <label className="search">
+          <Search size={16} />
+          <input aria-label={"Search " + view.toLowerCase()}
+            placeholder={view === "People" ? "Search by user ID…" : "Search by event name or user ID…"}
+            value={search} onBlur={() => { editing.current = false; }} onChange={(e) => change(e.target.value)} />
+        </label>
+        {(filters.name || filters.person) && (
+          <button className="chip" title="Remove filter" onClick={() => go(view, search ? { q: search } : {})}>
+            {filters.name || filters.person} <X size={14} />
+          </button>
+        )}
+      </header>
+      <Results key={query} {...{ view, project, days, go, inspect }} filters={{ ...filters, q: query }} />
+    </section>
+  );
+}
+function Results({ view, project, days, filters, go, inspect }) {
+  const isPeople = view === "People";
+  const [pages, setPages] = useState([]), [pageIndex, setPageIndex] = useState(0);
+  const offset = pageIndex * 30;
+  const params = new URLSearchParams({ days, ...filters });
   if (pageIndex) params.set("cursor", pages[pageIndex - 1].next);
+  else params.set("include_total", "1");
   const cached = pages[pageIndex];
   const live = useData(
     cached ? null :
@@ -48,32 +71,19 @@ export function Explorer({ view, project, days, filters, go, inspect }) {
     0,
     project.sample_as_of || offset ? 0 : 5000
   );
+  useEffect(() => {
+    if (pageIndex && live.code === "cursor_expired") {
+      setPages([]);
+      setPageIndex(0);
+    }
+  }, [pageIndex, live.code]);
   const state = cached ? { data: cached } : live;
   const rows = state.data?.rows;
+  const first = pages[0] ?? live.data;
+  const total = first?.total;
+  const unit = (count) => isPeople ? (count === 1 ? "person" : "people") : (count === 1 ? "event" : "events");
   return (
-    <section className="card explorer">
-      <header className="table-toolbar">
-        <label className="search">
-          <Search size={16} />
-          <input
-            aria-label={isPeople ? "Search people" : "Search events"}
-            placeholder={
-              isPeople ? "Search by user ID…" : "Search by event name or user ID…"
-            }
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-        </label>
-        {(filters.name || filters.person) && (
-          <button
-            className="chip"
-            title="Remove filter"
-            onClick={() => go(view)}
-          >
-            {filters.name || filters.person} <X size={14} />
-          </button>
-        )}
-      </header>
+    <>
       {state.error && <DataState state={state} />}
       {!rows && !state.error && <DataState state={state} />}
       {rows?.length > 0 && (
@@ -156,18 +166,8 @@ export function Explorer({ view, project, days, filters, go, inspect }) {
       {rows && (
         <footer className="pagination">
           <span>
-            {rows.length > 1
-              ? offset + 1 + "–" + (offset + rows.length)
-              : rows.length
-              ? offset + 1
-              : "0"}{" "}
-            {isPeople
-              ? rows.length === 1
-                ? "person"
-                : "people"
-              : rows.length === 1
-              ? "event"
-              : "events"}
+            {rows.length ? int(offset + 1) + "–" + int(offset + rows.length) : "0"}
+            {Number.isInteger(total) ? " of " + int(total) + " " + unit(total) : " · count unavailable"}
           </span>
           <div>
             <button
@@ -192,7 +192,7 @@ export function Explorer({ view, project, days, filters, go, inspect }) {
           </div>
         </footer>
       )}
-    </section>
+    </>
   );
 }
 
@@ -219,7 +219,7 @@ export function Funnels({ project, days }) {
     0,
     project.sample_as_of ? 0 : 5000
   );
-  if (!options.data) return <DataState state={options} />;
+  if (options.error || !options.data) return <DataState state={options} />;
   if (!names.length)
     return (
       <section className="card">
@@ -228,6 +228,7 @@ export function Funnels({ project, days }) {
         </Empty>
       </section>
     );
+  if (state.error) return <DataState state={state} />;
   const r = state.data;
   const rate = r?.entered
     ? Math.round((1000 * r.converted) / r.entered) / 10
