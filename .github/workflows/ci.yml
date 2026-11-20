@@ -20,11 +20,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
-      - name: Run HTTP contract tests
+      - name: Test Go packages and Python HTTP contracts
         env:
           BIRDWATCH_REFERENCE: python
           BIRDWATCH_SERVER_CMD: python3 server.py
-        run: go test -count=1 ./contract/...
+        run: go test -count=1 ./...
 
   javascript:
     runs-on: ubuntu-latest
