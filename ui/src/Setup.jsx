@@ -11,6 +11,7 @@ import {
   Terminal,
 } from "lucide-react";
 import versions from "./generated/sdk-versions.json";
+import exactExample from "../../sdks/exact/example/app.ts?raw";
 import { api, DataState, Dialog, useData } from "./lib";
 
 function Snippet({ code }) {
@@ -137,13 +138,13 @@ export function Setup({ project, create, go }) {
   const packageTab = tab === "Browser SDK" || tab === "Node.js";
   const browserSdk = `import { createBrowserClient } from "@birdwatch/sdk";
 
-type Events = { sign_up: { plan: "free" | "pro" } };
+type Events = { sign_up: { plan: "free" | "pro" }; page_view: { path: string } };
 const analytics = createBrowserClient<Events>({
   host: ${JSON.stringify(origin)},
   writeKey: ${JSON.stringify(p.write_key)},
 });
 
-await analytics.page();
+await analytics.capture("page_view", { path: location.pathname });
 analytics.identify("user_42");
 await analytics.capture("sign_up", { plan: "free" });`;
   const nodeSdk = `import { createServerClient } from "@birdwatch/sdk";
@@ -154,13 +155,9 @@ const analytics = createServerClient({
 });
 
 try {
-  await analytics.capture({
-    event: "sign_up",
-    distinctId: "user_42",
-    properties: { plan: "free" },
-  });
+  await analytics.capture("sign_up", { plan: "free" }, { distinctId: "user_42" });
 } finally {
-  await analytics.shutdown();
+  await analytics.close();
 }`;
   const clientConfig = `host: ${JSON.stringify(
     origin
@@ -175,18 +172,17 @@ try {
       install: `dependencies {\n    implementation(files("libs/birdwatch-android-${versions.android}.aar"))\n}`,
       detail: "Save the AAR in app/libs and add the dependency to app/build.gradle.kts. The standard emulator reaches your computer at 10.0.2.2. For a physical device, use a reachable HTTPS collector.",
       example: `import dev.birdwatch.sdk.Birdwatch
-import dev.birdwatch.sdk.Event
 
 val client = Birdwatch.open(applicationContext, ${JSON.stringify(androidHost.origin)}, ${JSON.stringify(p.write_key)})
 client.identify("user-42")
-client.enqueue(Event("checkout_completed", mapOf("orderId" to "order-123"), "checkout:order-123"))`,
+client.capture("checkout_completed", mapOf("orderId" to "order-123"), "checkout:order-123", null)`,
     },
     "React Native": {
       file: `birdwatch-react-native-${versions.reactNative}.tgz`,
       install:
         `npx expo install expo-crypto @react-native-async-storage/async-storage\nnpm install ./birdwatch-react-native-${versions.reactNative}.tgz`,
       detail:
-        "Initialize once at startup. Await enqueue to save an event even while offline.",
+        "Initialize once at startup. Await capture to save an event even while offline.",
       example: `import { createReactNativeClient } from "@birdwatch/react-native";
 import { randomUUID } from "expo-crypto";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -196,17 +192,16 @@ const client = await createReactNativeClient({
   storage: AsyncStorage, randomUUID,
 });
 await client.identify("user-42");
-await client.enqueue("checkout_completed", { orderId: "order-123" }, { id: "checkout:order-123" });`,
+await client.capture("checkout_completed", { orderId: "order-123" }, { id: "checkout:order-123" });`,
     },
     "Expo Exact": {
       file: `birdwatch-exact-${versions.exact}.tgz`,
       install: `npm install ./birdwatch-exact-${versions.exact}.tgz`,
       detail:
-        "The download includes a Contract app that commits locally, replays at launch, and retries while open. Replace its host and write key with these values.",
-      example: `import { createExactClient } from "@birdwatch/exact";
-
-export const grants = ${JSON.stringify("net.fetch " + origin + "\nsqlite.open app:/data/birdwatch.sqlite")};
-const client = createExactClient({ ${clientConfig}, fetch });`,
+        "Copy the packaged example’s manifest and Contract, then use this app.ts for your project.",
+      example: exactExample
+        .replace('"http://127.0.0.1:8123"', () => JSON.stringify(origin))
+        .replace('"YOUR_PROJECT_WRITE_KEY"', () => JSON.stringify(p.write_key)),
     },
     Swift: {
       file: `birdwatch-swift-${versions.swift}.zip`,
@@ -220,7 +215,7 @@ let client = try await BirdwatchClient(
     writeKey: ${JSON.stringify(p.write_key)}
 )
 try await client.identify("user-42")
-try await client.enqueue("checkout_completed", properties: ["orderId": "order-123"], id: "checkout:order-123")`,
+try await client.capture("checkout_completed", properties: ["orderId": "order-123"], id: "checkout:order-123")`,
     },
   }[tab];
   const methods = [
@@ -302,7 +297,7 @@ try await client.enqueue("checkout_completed", properties: ["orderId": "order-12
             </h3>
             <p>
               {tab === "Node.js"
-                ? "Reuse one client across requests. Include a user ID with each event and call shutdown() before your process exits."
+                ? "Reuse one client across requests. Include a user ID with each event and call close() before your process exits."
                 : "Define your event names and properties so TypeScript can check each capture call."}
             </p>
             <Snippet

@@ -38,6 +38,11 @@ function plainObject(value: unknown): value is Record<string, unknown> {
   return proto === null || Object.getPrototypeOf(proto) === null;
 }
 
+export function checkTraits(traits: unknown): void {
+  if (traits != null && (!plainObject(traits) || Object.keys(traits).length > 0))
+    invalid("Identity traits are unsupported.");
+}
+
 export function snapshotProperties(value: unknown): string {
   if (!plainObject(value)) invalid("properties must be a plain JSON object.");
   try {
@@ -51,7 +56,7 @@ export function snapshotProperties(value: unknown): string {
         !plainObject(original)
       ) {
         invalid(
-          "properties must contain only JSON values. Convert dates to strings."
+          "Convert dates and custom objects to JSON values."
         );
       }
       if (
@@ -63,7 +68,7 @@ export function snapshotProperties(value: unknown): string {
         (typeof item === "number" && !Number.isFinite(item))
       ) {
         invalid(
-          "properties must contain only finite numbers, strings, booleans, null, arrays, or objects."
+          "Use JSON values and finite numbers in properties."
         );
       }
       return item;

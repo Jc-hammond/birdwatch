@@ -17,6 +17,7 @@ import {
 import { AppState } from "react-native";
 import {
   BirdwatchError,
+  checkTraits,
   encodeEvent,
   invalid,
   stringField,
@@ -28,6 +29,7 @@ import {
   type CaptureArgs,
   type CaptureOptions,
   type Lifecycle,
+  type Properties,
   type Receipt,
 } from "../../sdk/src/internal.js";
 export { BirdwatchError };
@@ -47,19 +49,9 @@ export interface NativeOptions extends ClientOptions {
   randomUUID?: () => string;
 }
 export interface NativeClient<C extends CatalogShape<C>> extends Lifecycle {
-  readonly distinctId: string;
-  identify(distinctId: string): Promise<void>;
+  identify(distinctId: string, traits?: Properties): Promise<void>;
   reset(): Promise<void>;
-  capture<N extends EventName<C>>(
-    event: N,
-    ...args: CaptureArgs<C[N]>
-  ): Promise<Receipt>;
-  /** Resolve on local commit, even when the collector is unreachable. */
-  enqueue<N extends EventName<C>>(
-    event: N,
-    ...args: CaptureArgs<C[N]>
-  ): Promise<{ id: string }>;
-  screen(name: string, options?: CaptureOptions): Promise<Receipt>;
+  capture<N extends EventName<C>>(event: N, ...args: CaptureArgs<C[N]>): Promise<string>;
 }
 export async function createReactNativeClient<
   C extends CatalogShape<C> = EventCatalog,
@@ -364,7 +356,8 @@ export async function createReactNativeClient<
     void receipt.catch(() => {});
     return receipt;
   }
-  async function identify(value: string) {
+  async function identify(value: string, traits?: Properties) {
+    checkTraits(traits);
     try {
       if (closed)
         throw new BirdwatchError("closed", "The client has been shut down.");
@@ -402,9 +395,7 @@ export async function createReactNativeClient<
   }
   schedule(config.flushInterval);
   return {
-    get distinctId() {
-      return person;
-    },
+    onError: config.onError,
     identify,
     reset: async () => {
       let generated;
@@ -417,21 +408,9 @@ export async function createReactNativeClient<
       }
       await identify(generated);
     },
-    enqueue: (name, ...args) => enqueue(name, args[0], args[1]),
-    capture: (name, ...args) => capture(name, args[0], args[1]),
-    screen: async (name, opts) => {
-      let screen;
-      try {
-        screen = stringField(name, "screen", 256);
-      } catch (cause) {
-        const error = storageError(cause);
-        report(error);
-        throw error;
-      }
-      return capture("screen_view", { screen }, opts);
-    },
-    flush: () => flush(),
-    shutdown() {
+    capture: async (name, ...args) => (storage ? await enqueue(name, args[0], args[1]) : await capture(name, args[0], args[1])).id,
+    flush: () => flush().catch(() => {}),
+    close() {
       if (!closing) {
         closed = true;
         cancel();
@@ -445,7 +424,7 @@ export async function createReactNativeClient<
         } catch (cause) {
           report(storageError(cause));
         }
-        closing = Promise.all([flush(), identityWrite])
+        closing = Promise.all([flush().catch(() => {}), identityWrite])
           .then(
             () => {},
             (cause) => {

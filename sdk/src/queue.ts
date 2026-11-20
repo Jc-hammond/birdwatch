@@ -3,24 +3,26 @@ import { encodeEvent, type EncodedEvent } from "./event.js";
 import { configure, DeliveryFailure, payload, retryDelay, send } from "./transport.js";
 import { browserOutbox } from "./outbox.js";
 import { BirdwatchError } from "./types.js";
-import type { CaptureOptions, BrowserOptions, Receipt } from "./types.js";
+import type { CaptureOptions, BrowserOptions } from "./types.js";
 
 interface Pending extends EncodedEvent {
   slot?: string;
-  acknowledged: Promise<Receipt>;
-  resolve: (receipt: Receipt) => void;
+  resolve: (id: string) => void;
   reject: (error: unknown) => void;
 }
 
 export class DeliveryQueue {
   private readonly config;
   private readonly overhead;
+  readonly onError;
   private readonly outbox?: ReturnType<typeof browserOutbox>;
   private readonly pending = new Set<Pending>();
   private timer?: ReturnType<typeof setTimeout>;
-  private running = false;
+  private running?: Promise<void>;
+  private retryRows: Pending[] = [];
   private paused?: BirdwatchError;
   private readonly unloading = new Set<Pending>();
+  private readonly hiddenSends = new Set<Promise<void>>();
   private retryAt = 0;
   private overflow = false;
   private failures = 0;
@@ -31,6 +33,7 @@ export class DeliveryQueue {
     private readonly browser = false
   ) {
     this.config = configure(options);
+    this.onError = this.config.onError;
     this.overhead = utf8Length(payload(this.config.key, []));
     if (browser && options.persist) {
       this.outbox = browserOutbox(this.config.endpoint, this.config.key, () =>
@@ -50,17 +53,14 @@ export class DeliveryQueue {
     person: unknown,
     props: unknown,
     options?: CaptureOptions
-  ): Promise<Receipt> {
+  ): Promise<string> {
     try {
       const event = encodeEvent(name, person, props, options ?? {});
       if (this.closing)
         throw new BirdwatchError("closed", "The client has been shut down.");
       return this.admit(event);
     } catch (error) {
-      this.config.report(error as BirdwatchError);
-      const rejected = Promise.reject<Receipt>(error);
-      void rejected.catch(() => {});
-      return rejected;
+      return Promise.reject(error);
     }
   }
   private admit(event: EncodedEvent, slot?: string) {
@@ -76,15 +76,15 @@ export class DeliveryQueue {
       this.overflow = true;
     }
     let resolve!: Pending["resolve"], reject!: Pending["reject"];
-    const acknowledged = new Promise<Receipt>((ok, fail) => {
+    const acknowledged = new Promise<string>((ok, fail) => {
       resolve = ok;
       reject = fail;
     });
     void acknowledged.catch(() => {});
+    slot ??= this.outbox?.save(event.json);
     this.pending.add({
       ...event,
-      slot: slot ?? this.outbox?.save(event.json),
-      acknowledged,
+      slot,
       resolve,
       reject,
     });
@@ -92,7 +92,7 @@ export class DeliveryQueue {
     if (this.pending.size >= this.config.batchSize) void this.drain();
     else if (!this.running && !this.paused && this.timer === undefined)
       this.schedule(this.config.flushInterval);
-    return acknowledged;
+    return slot ? Promise.resolve(event.id) : acknowledged;
   }
 
   private schedule(ms: number) {
@@ -162,7 +162,7 @@ export class DeliveryQueue {
       if (error) {
         item.reject(error);
         this.config.report(error);
-      } else item.resolve({ id: item.id, batch: result.counts });
+      } else item.resolve(item.id);
     });
     this.overflow = false;
     this.failures = 0;
@@ -170,51 +170,51 @@ export class DeliveryQueue {
   private retry(ms: number) {
     this.retryAt = Math.max(this.retryAt, Date.now() + ms);
     clearTimeout(this.timer);
-    this.schedule(this.retryAt - Date.now());
+    if (!this.closing) this.schedule(Math.max(0, this.retryAt - Date.now()));
   }
   private available() {
     return Array.from(this.pending).filter((item) => !this.unloading.has(item));
   }
-  private async drain() {
-    if (this.running || this.paused || Date.now() < this.retryAt) return;
+  private drain(): Promise<void> {
+    if (this.running) return this.running;
+    if (this.paused) return Promise.resolve();
+    if (Date.now() < this.retryAt) {
+      this.retry(0);
+      return Promise.resolve();
+    }
+    this.running = this.sendPending().finally(() => {
+      this.running = undefined;
+      if (!this.closing && !this.paused && this.timer === undefined && this.available().length)
+        this.schedule(Math.max(0, this.retryAt - Date.now()));
+    });
+    return this.running;
+  }
+
+  private async sendPending() {
     clearTimeout(this.timer);
     this.timer = undefined;
-    this.running = true;
-    try {
-      while (this.pending.size && !this.paused && Date.now() >= this.retryAt) {
-        let rows = this.take(this.available());
-        if (!rows.length) break;
-        while (rows.length && !this.paused) {
-          try {
-            await this.deliver(rows);
-            break;
-          } catch (error) {
-            const failure = error as DeliveryFailure;
-            this.retryAt = Math.max(
-              this.retryAt,
-              Date.now() + retryDelay(failure, this.failures++)
-            );
-            while (Date.now() < this.retryAt) {
-              await new Promise((resolve) =>
-                setTimeout(resolve, this.retryAt - Date.now())
-              );
-            }
-            rows = rows.filter((item) => this.pending.has(item));
-          }
-        }
+    while (this.pending.size && !this.paused && Date.now() >= this.retryAt) {
+      let rows = this.retryRows.filter(item => this.pending.has(item));
+      this.retryRows = [];
+      if (!rows.length) rows = this.take(this.available());
+      if (!rows.length) return;
+      try {
+        await this.deliver(rows);
+      } catch (error) {
+        this.retryRows = rows;
+        this.retry(retryDelay(error, this.failures++));
+        return;
       }
-    } finally {
-      this.running = false;
     }
   }
 
   unload() {
-    if (this.paused || Date.now() < this.retryAt) return;
+    if (this.closing || this.paused || Date.now() < this.retryAt) return;
     const all = this.available();
     while (all.length) {
       const rows = this.take(all);
       rows.forEach((item) => this.unloading.add(item));
-      void this.deliver(rows, true)
+      const flight = this.deliver(rows, true)
         .catch((error) => {
           if (error.code === "network" || error.code === "timeout") {
             try {
@@ -229,31 +229,31 @@ export class DeliveryQueue {
           this.retry(retryDelay(error, this.failures++));
         })
         .finally(() => {
+          this.hiddenSends.delete(flight);
           rows.forEach((item) => this.unloading.delete(item));
           if (
-            !this.running &&
+            !this.closing && !this.running &&
             !this.paused &&
             this.pending.size &&
             this.timer === undefined
           )
             void this.drain();
         });
+      this.hiddenSends.add(flight);
     }
   }
 
   flush(): Promise<void> {
-    if (this.paused) return Promise.reject(this.paused);
-    const outstanding = Array.from(this.pending, (item) => item.acknowledged);
-    void this.drain();
-    return Promise.allSettled(outstanding).then((results) => {
-      for (const result of results)
-        if (result.status === "rejected") throw result.reason;
-    });
+    return this.closing ?? Promise.all([this.drain(), ...this.hiddenSends]).then(() => {});
   }
-  shutdown(): Promise<void> {
+  close(): Promise<void> {
     if (!this.closing) {
-      const drain = Promise.resolve().then(() => this.flush());
-      this.closing = drain;
+      this.closing = this.flush().then(() => {
+        clearTimeout(this.timer);
+        const error = this.paused ?? new BirdwatchError("closed", "Delivery stopped before acknowledgement.");
+        for (const row of this.pending) row.reject(error);
+        if (!this.paused && this.pending.size) this.config.report(error);
+      });
     }
     return this.closing;
   }

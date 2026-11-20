@@ -19,7 +19,7 @@ public enum BirdwatchError: Error, Equatable {
   case closed
 }
 
-public struct Receipt: Sendable, Equatable {
+private struct Receipt: Sendable, Equatable {
   public let id: String
   public let accepted: Int
   public let duplicates: Int
@@ -76,6 +76,7 @@ public actor BirdwatchClient {
   private let writeKey: String
   private let session: URLSession
   private let persistenceKey: String?
+  private let durable: Bool
   private let outbox: Outbox
   private let environment: DeliveryEnvironment
   private var errorHandler: ErrorHandler?
@@ -92,7 +93,7 @@ public actor BirdwatchClient {
   private var closed = false
   private var overflow = false
   private(set) var due: Date?
-  public private(set) var distinctId: String
+  private(set) var distinctId: String
 
   public init(
     host: URL, writeKey: String, persistence: Persistence = .disk, timeout: TimeInterval = 5,
@@ -145,6 +146,7 @@ public actor BirdwatchClient {
       file = outboxURL
     }
     let (store, recovered) = try await Outbox.open(file: file, scope: scope, capacity: maxQueueSize)
+    durable = file != nil
     outbox = store
     persistenceKey =
       persistence == .disk ? "birdwatch.identity.\(endpoint.absoluteString)|\(writeKey)" : nil
@@ -160,7 +162,7 @@ public actor BirdwatchClient {
 
   private func startReplay() {
     monitor.pathUpdateHandler = { [weak self] path in
-      if path.status == .satisfied { Task { try? await self?.flush() } }
+      if path.status == .satisfied { Task { await self?.flush() } }
     }
     monitor.start(queue: DispatchQueue(label: "birdwatch.connectivity"))
     #if canImport(UIKit)
@@ -198,29 +200,16 @@ public actor BirdwatchClient {
   func tick() async {
     guard let due, due <= environment.now() else { return }
     self.due = nil
-    try? await flush()
+    await flush()
   }
 
-  public func identify(_ person: String) throws {
+  public func identify(_ person: String, traits: [String: JSONValue] = [:]) throws {
+    guard traits.isEmpty else { throw BirdwatchError.invalidInput("Identity traits are unsupported.") }
     distinctId = try checked(person, 256, "distinctId")
     if let key = persistenceKey { UserDefaults.standard.set(distinctId, forKey: key) }
   }
 
   public func reset() { try? identify(UUID().uuidString) }
-
-  @discardableResult
-  public func screen(_ name: String, id: String = UUID().uuidString) async throws -> Receipt {
-    try await capture(
-      "screen_view", properties: ["screen": .string(try checked(name, 256, "screen"))], id: id)
-  }
-
-  @discardableResult
-  public func enqueue(
-    _ name: String, properties: [String: JSONValue] = [:],
-    id: String = UUID().uuidString, timestamp: Date? = nil
-  ) async throws -> String {
-    try await stage(name, properties: properties, id: id, timestamp: timestamp).id
-  }
 
   private func stage(_ name: String, properties: [String: JSONValue], id: String, timestamp: Date?)
     async throws -> StoredEvent
@@ -262,14 +251,17 @@ public actor BirdwatchClient {
   public func capture(
     _ name: String, properties: [String: JSONValue] = [:],
     id: String = UUID().uuidString, timestamp: Date? = nil
-  ) async throws -> Receipt {
-    return try await withCheckedThrowingContinuation { continuation in
+  ) async throws -> String {
+    if durable {
+      return try await stage(name, properties: properties, id: id, timestamp: timestamp).id
+    }
+    let receipt: Receipt = try await withCheckedThrowingContinuation { continuation in
       let token = UUID()
       waiters[id, default: [:]][token] = continuation
       Task {
         do {
           let row = try await stage(name, properties: properties, id: id, timestamp: timestamp)
-          try await flush()
+          try await drain(background: false)
           if waiters[id]?[token] != nil {
             // A second client can acknowledge and remove this SQLite row first.
             // Replaying its original UUID obtains a receipt for this caller.
@@ -281,6 +273,7 @@ public actor BirdwatchClient {
         }
       }
     }
+    return receipt.id
   }
 
   private func finish(_ id: String, with result: Result<Receipt, Error>) {
@@ -289,7 +282,7 @@ public actor BirdwatchClient {
     }
   }
 
-  public func flush() async throws { try await drain(background: false) }
+  public func flush() async { try? await drain(background: false) }
   func background() async throws { try await drain(background: true) }
 
   private func drain(background: Bool) async throws {
@@ -459,7 +452,7 @@ public actor BirdwatchClient {
     return true
   }
 
-  public func close() async throws {
+  public func close() async {
     closing = true
     defer {
       closed = true
@@ -470,6 +463,6 @@ public actor BirdwatchClient {
         self.observer = nil
       }
     }
-    if !closed { try await flush() }
+    if !closed { await flush() }
   }
 }

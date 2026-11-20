@@ -48,7 +48,7 @@ private actor Driver {
         transport: { try await clock.send($0) }, automatic: false, flushDelay: 60)
       client = try await BirdwatchClient(
         host: host, writeKey: "test", persistence: .memory,
-        outboxURL: config["persist"] as? Bool == true ? file : nil,
+        outboxURL: file,
         maxQueueSize: config["capacity"] as? Int ?? 1000,
         onError: { _ in reply(["errorEvent": true]) }, environment: runtime)
       return [:]
@@ -63,13 +63,13 @@ private actor Driver {
       sqlite3_close(lockConnection)
       lockConnection = nil
     case "capture":
-      _ = try await client.enqueue(
+      _ = try await client.capture(
         command["event"] as! String, id: command["uuid"] as? String ?? UUID().uuidString)
     case "online", "offline": clock.setOnline(op == "online")
-    case "flush": try? await client.flush()
+    case "flush": await client.flush()
     case "hide": try? await client.background()
     case "close":
-      try? await client.close()
+      await client.close()
       self.client = nil
     case "due":
       if let date = await client.due {

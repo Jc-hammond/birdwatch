@@ -124,7 +124,7 @@ export class ExactDriver {
     const work = this.work;
     let task;
     task = this.client
-      .flush(this.storage, this.now, background, token)
+      .flush({ storage: this.storage, sendTime: () => this.now, background, retryToken: token })
       .then((outcome) => {
         if (work === this.work && outcome.retryToken) {
           this.due = Math.max(this.now + outcome.retryAfterMs, Math.min(this.now + 300000, outcome.retryAtMs ?? 0));
@@ -155,15 +155,8 @@ export class ExactDriver {
   async step(step) {
     if (step.capture) {
       for (const id of step.capture)
-        await this.client.enqueue(
-          {
-            id: this.config.generatedIds ? undefined : id,
-            event: this.config.generatedIds ? id : "example",
-            distinctId: "test",
-            timestamp: new Date(this.now).toISOString(),
-          },
-          this.storage,
-        );
+        await this.client.capture({ storage: this.storage, at: this.now }, this.config.generatedIds ? id : "example", {},
+          this.config.generatedIds ? {} : { id });
       this.due ??= this.now + 60000;
     } else if (step.advanceMs !== undefined) await this.advance(step.advanceMs);
     else if (step.clockAheadMs !== undefined) this.now += step.clockAheadMs;

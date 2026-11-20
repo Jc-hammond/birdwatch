@@ -52,19 +52,19 @@ test("the script tag exposes one Birdwatch global and restores the project ident
   const before = new Set(Object.keys(win));
   await import("../dist/birdwatch.js");
   assert.deepEqual(Object.keys(win).filter((key) => !before.has(key)), ["birdwatch"]);
-  assert.equal(win.birdwatch.distinctId, "visitor");
-  await win.birdwatch.shutdown();
+  assert.deepEqual(Object.keys(win.birdwatch).sort(), ["capture", "close", "flush", "identify", "onError", "reset"]);
+  await win.birdwatch.close();
 });
 
 test("restores the stored Birdwatch identity and preserves attribution across identify and reset", async (t) => {
   const env = browser(t);
   env.storage.setItem("birdwatch.id.key", "existing");
   const c = env.client();
-  const one = c.page();
+  const one = c.capture("page_view", { path: env.win.location.pathname });
   c.identify("member");
   const two = c.capture("signed_in");
   c.reset();
-  const anon = c.distinctId;
+  const anon = env.storage.getItem("birdwatch.id.key");
   const three = c.capture("signed_out");
   assert.notEqual(anon, "member");
   env.win.dispatchEvent(new Event("pagehide"));
@@ -76,16 +76,15 @@ test("restores the stored Birdwatch identity and preserves attribution across id
   );
   assert.deepEqual(events[0].properties, { path: "/inside" });
   assert.equal(env.storage.getItem("birdwatch.id.key"), anon);
-  await c.shutdown();
+  await c.close();
 });
 test("memory persistence avoids touching stored identities", async (t) => {
   const env = browser(t);
   env.storage.setItem("birdwatch.id.key", "existing");
   const c = env.client({ persistence: "memory" });
-  assert.notEqual(c.distinctId, "existing");
   c.identify("temporary");
   assert.equal(env.storage.getItem("birdwatch.id.key"), "existing");
-  await c.shutdown();
+  await c.close();
 });
 test("storage-denied browsers still deliver and flush on visibility changes", async (t) => {
   const env = browser(t, true);
@@ -94,6 +93,6 @@ test("storage-denied browsers still deliver and flush on visibility changes", as
   env.doc.visibilityState = "hidden";
   env.doc.dispatchEvent(new Event("visibilitychange"));
   await pending;
-  assert.equal(env.batches.flat()[0].distinct_id, c.distinctId);
-  await c.shutdown();
+  assert.ok(env.batches.flat()[0].distinct_id);
+  await c.close();
 });
