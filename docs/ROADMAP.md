@@ -43,7 +43,10 @@ Feature count is deliberately not a claim.
 | Releases | 0.5 Foundation, 0.8 Agent-native and web, 1.0 Product analytics and flags |
 | Session replay | Deferred |
 | Name and namespaces | Birdwatch stays. npm scope `@birdwatch` if it can be claimed, otherwise `@birdwatch-analytics`. Maven group `io.github.jc-hammond`. Docker image `ghcr.io/jc-hammond/birdwatch` |
-| Specifications | Written by the maintainer with Claude in a session, at most one milestone ahead |
+| Specifications | Written by the maintainer with Claude in a session, one release at a time. All of 0.5 is specified |
+| Full SDK queue | Drops the oldest events and reports it once through `onError` |
+| Old databases | No migration from databases made by the Python server |
+| Website | A hand-written static site with no build step, in `website/`. The maintainer publishes it as a Codex Site; agents never publish it |
 | Starting work | The maintainer starts one session per issue |
 | Cost | Everything runs on free tiers for a public repository. Nothing bills per use |
 | Dates | None. After the first four issues land, review pace and the scope of 0.5 |
@@ -214,7 +217,7 @@ onError(handler)
 
 ### R1 · One build, no build output in git (M)
 
-Remove committed build output: `static/`, `ui/public/assets/`, every `dist/`, `website/dist/downloads/` and superseded archives. One `Makefile` with `build`, `test`, `lint`, `release`. The JavaScript packages become one npm workspace; adapters depend on the core package instead of importing its source by relative path and borrowing its `node_modules`. The dashboard reads SDK versions from one generated file.
+Remove committed build output: `static/`, `ui/public/assets/`, every SDK `dist/` and superseded archives. The website folder is source, not build output, and is left to R4. One `Makefile` with `build`, `test`, `lint`, `release`. The JavaScript packages become one npm workspace; adapters depend on the core package instead of importing its source by relative path and borrowing its `node_modules`. The dashboard reads SDK versions from one generated file.
 
 ### R2 · Release pipeline (M)
 
@@ -224,9 +227,9 @@ A tag builds binaries for Linux, macOS and Windows on amd64 and arm64 with check
 
 npm for the JavaScript packages, Maven Central for Android under the group `io.github.jc-hammond` (changed from `dev.birdwatch`, which would need a domain), a tagged repository for SwiftPM. Confirm the `@birdwatch` npm scope can be claimed first; fall back to `@birdwatch-analytics`. The dashboard's Setup page shows registry installs and keeps the bundled downloads as the offline option.
 
-### R4 · Website and docs source (M)
+### R4 · Website docs from Markdown (M)
 
-Commit the website's source and deploy it from CI. Docs pages are generated from the Markdown in `docs/`.
+The website's documentation pages are generated from the Markdown in `docs/` and committed, with CI failing when they are out of date. Links to bundled SDK archives become registry installs and GitHub release links, and the archives are removed. Publishing stays a manual step for the maintainer.
 
 ### R5 · Project scaffolding (S)
 
@@ -238,7 +241,7 @@ From a clean machine: install with the documented command, open the dashboard, c
 
 ### R7 · Install and deployment guides (S)
 
-An install script and two tested guides, each ending with a verification step: local (loopback) and public server (`--domain`, a generated password, scheduled backups on).
+An install script and two tested guides, each ending with a verification step: local (loopback) and public server (`--domain`, a generated password, scheduled backups on through O4).
 
 ### R8 · Dashboard fixes (M)
 
@@ -255,6 +258,10 @@ An install script and two tested guides, each ending with a verification step: l
 ### R9 · Light theme (S)
 
 A light theme that follows the system setting, with a manual switch.
+
+### O4 · Backups (S)
+
+`birdwatch backup <path>` using SQLite's online backup, and an optional schedule with rotation (`--backup-dir`, daily, newest seven kept). Moved here from release 1.0 because the public server guide (R7) turns backups on.
 
 ---
 
@@ -419,10 +426,6 @@ Rename, delete with typed confirmation, rotate the write key with an overlap per
 
 A read-only link per dashboard, optionally password-protected, and an embeddable view.
 
-### O4 · Backups (S)
-
-`birdwatch backup <path>` using SQLite's online backup, and an optional schedule with rotation.
-
 ### O5 · Published numbers (S)
 
 The 10M benchmark results and the machine they ran on, in the README and on the website, updated by the nightly run.
@@ -449,13 +452,13 @@ F1 → F2 → F4 → F5
         ↘ G1 → G2 → G3, G4, G5, G6, G7 → G8, G9, G10 → G11
 F3 runs against the Python reference first, then gates G11
 S1 → S2 … S6 → S7          (after F1)
-R1 → R2 → R3, R6, R7       (R2 after G11)
+R1 → R2 → R3, R6, R7       (R2 after G11; R7 after O4; R4 after R3)
 0.5 released
 A1, A2, A3 → A5, A6 → A4, A7, A8, A9, A10
 W1 → W2, W3, W4, W5 → W6, W7, W8
 P1 → P2
 0.8 released
-P3 … P10, FL1 → FL2 → FL3, O1 … O5
+P3 … P10, FL1 → FL2 → FL3, O1, O2, O3, O5
 1.0 released
 ```
 
