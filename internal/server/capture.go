@@ -195,7 +195,8 @@ func storeEvent(ctx context.Context, tx *sql.Tx, project int64, item fields, rec
 			return false, err
 		}
 		var exists bool
-		if err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM events WHERE project_id=? AND uuid=?)", project, id).Scan(&exists); err != nil || exists {
+		if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM events WHERE project_id=?1 AND uuid=?2) OR
+ EXISTS(SELECT 1 FROM expired_receipts WHERE project_id=?1 AND digest=receipt_hash(?2))`, project, id).Scan(&exists); err != nil || exists {
 			return exists, err
 		}
 		uuid = id
@@ -233,6 +234,6 @@ func storeEvent(ctx context.Context, tx *sql.Tx, project int64, item fields, rec
 			ts = received
 		}
 	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO events(project_id,event,distinct_id,timestamp,properties,uuid) VALUES(?,?,?,?,?,?)", project, name, person, ts.Format(stamp), props, uuid)
+	_, err = tx.ExecContext(ctx, "INSERT INTO events(id,project_id,event,distinct_id,timestamp,properties,uuid) VALUES((SELECT max(coalesce((SELECT max(id) FROM events),0),(SELECT max(deleted_max_id) FROM projects))+1),?,?,?,?,?,?)", project, name, person, ts.Format(stamp), props, uuid)
 	return false, err
 }

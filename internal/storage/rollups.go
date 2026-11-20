@@ -44,6 +44,21 @@ CREATE TRIGGER rollup_event AFTER INSERT ON events BEGIN
 END;
 ` + fillDaily
 
+// Rebuild from the remaining raw events and the per-person counts retained
+// after expiry. Ordering all active days together restores predecessor links.
+const restoreDaily = `
+CREATE TEMP VIEW contributions AS
+ SELECT project_id,distinct_id,substr(timestamp,1,10) day,event,count(*) n,min(timestamp) first_ts,max(timestamp) last_ts
+ FROM events GROUP BY 1,2,3,4
+ UNION ALL SELECT project_id,distinct_id,day,event,n,first_ts,last_ts FROM expired_counts;
+DELETE FROM daily_events;
+INSERT INTO daily_events SELECT project_id,day,event,sum(n) FROM contributions GROUP BY 1,2,3;
+DELETE FROM daily_people;
+INSERT INTO daily_people SELECT project_id,day,distinct_id,sum(n),min(first_ts),max(last_ts),
+ lag(day,1,'') OVER(PARTITION BY project_id,distinct_id ORDER BY day)
+ FROM contributions GROUP BY project_id,distinct_id,day;
+DROP VIEW contributions;`
+
 func RebuildRollups(ctx context.Context, path string) error {
 	s, err := open(ctx, path, false)
 	if err != nil {
@@ -51,7 +66,7 @@ func RebuildRollups(ctx context.Context, path string) error {
 	}
 	defer s.Close()
 	return s.write(ctx, func(ctx context.Context, tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, "DELETE FROM daily_events; DELETE FROM daily_people;"+fillDaily)
+		_, err := tx.ExecContext(ctx, restoreDaily)
 		return err
 	})
 }
