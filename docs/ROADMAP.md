@@ -1,6 +1,6 @@
 # Birdwatch roadmap
 
-Last decided 2026-11-18. Work is tracked in Linear (team `BIR`); every item below has one issue with the same ID in its title. Working rules for contributors and agents are in [AGENTS.md](../AGENTS.md).
+Last decided 2026-11-20. Work is tracked in Linear (team `BIR`); every item below has one issue with the same ID in its title. Working rules for contributors and agents are in [AGENTS.md](../AGENTS.md).
 
 ## What Birdwatch is
 
@@ -18,7 +18,7 @@ A free, MIT-licensed, self-hosted analytics platform for developers and small te
 | Claim | Check |
 | --- | --- |
 | Install to first event in under two minutes, with one command | Browser end-to-end test (R6) |
-| 10M events on a small server, every report under 300 ms | Benchmark (F3), raised only when measured |
+| 10M events on a small server, every report under 300 ms | Benchmark (F3) at 2M on every server change and at 10M every night |
 | An agent can install it, instrument an app and answer a product question unaided | Agent check, run locally weekly and before each release (A10) |
 
 Feature count is deliberately not a claim.
@@ -35,7 +35,7 @@ Feature count is deliberately not a claim.
 | Breaking changes | Free until the maintainer says otherwise |
 | Batch wire format | Valid events are stored and rejected ones reported individually |
 | Website identity | Cookieless by default, one attribute switches to a stored ID |
-| SDKs | All five (web/Node, React Native, Swift, Android, Exact) are maintained to the same standard |
+| SDKs | Web/Node is supported. React Native, Swift, Android and Exact pass the same delivery scenarios and are labelled Preview until 1.0 |
 | Reports | The full set is built, in release order, without waiting for demand |
 | Teams | One admin login, scoped tokens and share links. Multi-user is deferred |
 | Agent permissions | A capability list per token and project, with three presets. Deletion is off in every preset |
@@ -43,11 +43,18 @@ Feature count is deliberately not a claim.
 | Releases | 0.5 Foundation, 0.8 Agent-native and web, 1.0 Product analytics and flags |
 | Session replay | Deferred |
 | Name and namespaces | Birdwatch stays. npm scope `@birdwatch` if it can be claimed, otherwise `@birdwatch-analytics`. Maven group `io.github.jc-hammond`. Docker image `ghcr.io/jc-hammond/birdwatch` |
-| Specifications | Written by the maintainer with Claude in a session, one release at a time. All of 0.5 is specified |
+| Specifications | Written by the maintainer with Claude in a session, one release at a time. Every issue states its expected size |
 | Full SDK queue | Drops the oldest events and reports it once through `onError` |
 | Old databases | No migration from databases made by the Python server |
 | Website | A hand-written static site with no build step, in `website/`. The maintainer publishes it as a Codex Site; agents never publish it |
-| Starting work | The maintainer starts one session per issue |
+| Starting work | The maintainer starts one session per issue, and the session stops when that issue is done |
+| Review | Three questions: matches the ticket, follows the rules, what can be removed. Sensitive changes are reviewed by the maintainer or a session that wrote none of the code. An audit closes each milestone |
+| Retention | Expiry removes everything tied to a visitor. Only anonymous daily totals survive |
+| Paging | Plain "rows after this one" cursors. Pages may shift while new events arrive |
+| List totals | Shown only where they cost one cheap lookup |
+| SDK downloads | Not embedded in the binary. The Setup page shows instructions; registries come with R3 |
+| HTTPS on Windows | Built-in HTTPS is not offered on Windows. Use a proxy |
+| Storage design | Measured at 10M events before code is built on it |
 | Cost | Everything runs on free tiers for a public repository. Nothing bills per use |
 | Dates | None. After the first four issues land, review pace and the scope of 0.5 |
 
@@ -165,7 +172,7 @@ Scenarios: happy path, lost acknowledgement, 503 then success, `Retry-After`, on
 ### S2 · Web and Node SDK (M, review)
 
 - Requeue on retryable failure instead of rejecting after about half a second (`transport.ts:62`, `queue.ts:155`).
-- On `pagehide` and hidden, send everything unacknowledged with `keepalive`, falling back to `sendBeacon`, even while a request is in flight (`queue.ts:110`).
+- On `pagehide` and hidden, send everything unacknowledged with `keepalive`, even while a request is in flight or a retry is pending (`queue.ts:110`). No `sendBeacon`: it sends cookies and the referrer.
 - Optional `persist: true` durable queue in `localStorage`.
 - On a cross-tab storage clear, re-read before generating a new ID (`browser.ts:55`).
 - Apply the 48 KiB cap and `keepalive` only in the browser (`transport.ts:67,99`).
@@ -225,7 +232,7 @@ A tag builds binaries for Linux, macOS and Windows on amd64 and arm64 with check
 
 ### R3 · SDK publishing (M)
 
-npm for the JavaScript packages, Maven Central for Android under the group `io.github.jc-hammond` (changed from `dev.birdwatch`, which would need a domain), a tagged repository for SwiftPM. Confirm the `@birdwatch` npm scope can be claimed first; fall back to `@birdwatch-analytics`. The dashboard's Setup page shows registry installs and keeps the bundled downloads as the offline option.
+npm for the JavaScript packages, Maven Central for Android under the group `io.github.jc-hammond` (changed from `dev.birdwatch`, which would need a domain), a tagged repository for SwiftPM. Confirm the `@birdwatch` npm scope can be claimed first; fall back to `@birdwatch-analytics`. The dashboard's Setup page shows registry installs.
 
 ### R4 · Website docs from Markdown (M)
 
@@ -262,6 +269,48 @@ A light theme that follows the system setting, with a manual switch.
 ### O4 · Backups (S)
 
 `birdwatch backup <path>` using SQLite's online backup, and an optional schedule with rotation (`--backup-dir`, daily, newest seven kept). Moved here from release 1.0 because the public server guide (R7) turns backups on.
+
+## Remediation
+
+The first build pass merged G1 to G9, S1 to S7 and half of the release work in a day. An audit found it works at small scale but misses the 10M claim fourfold, keeps visitor history past retention, and loses events in some SDK paths. These items clean that up. Release work (R2, R3, R4, R6, R7) waits for C14. The plan and its reasons are in Linear under "Remediation plan".
+
+Where an item below disagrees with G5, G8, G9, G10, G11, S2 or R1 above, the item below wins.
+
+### C1 · Cut over to Go (S, review)
+
+G11 without the 10M gate. Delete the Python server, fix Docker, run the install check on every pull request and the 10M benchmark nightly, reporting only until C12.
+
+### C2 · Built-in HTTPS without the Windows code (S, review)
+
+G10 as specified, minus the Windows certificate-cache code. On Windows `--domain` exits with a message.
+
+### C3 · Storage design at 10M (M, review)
+
+A spike, nothing merged: drivers, SQLite settings and schemas measured at 10M events and 1M visitors. Produces the schema and the query for each report. Targets: every report under 300 ms, over 20,000 events per second, under 200 bytes per event.
+
+### C4 · Let browsers read Retry-After (S)
+
+The capture endpoint exposes `Retry-After` to cross-origin pages.
+
+### C5 · Flush, close and hide rules (M, review)
+
+`docs/protocol.md` defines what every SDK does on `flush`, `close` and when hidden, with five new conformance scenarios and a known-gap list per SDK.
+
+### C6 · Web and Node SDK (M, review) · C7 · Swift (S, review) · C8 · Android (M, review) · C9 · React Native and Exact (M, review)
+
+Each SDK follows the C5 rules and empties its known-gap list. Web drops `sendBeacon` and the forbidden hand-written delivery tests. Swift waits on a monotonic clock. Android's own HTTP transport is the one under test. React Native takes storage as an argument and drops its storage dependency.
+
+### C10 · Build with Go and Node only (S)
+
+The binary stops embedding SDK archives, so building the server no longer needs Java or Android. Four SDKs are labelled Preview.
+
+### C11 · One schema, one migration · C12 · Rebuild reports · C13 · Retention (M each, review)
+
+Specified after C3. The schema C3 chose in a single migration; reports rebuilt on it with plain cursors and cheap totals; retention that removes everything about a visitor. Target: the server near 1,500 lines, from 2,298.
+
+### C14 · Remediation audit (S, review)
+
+The maintainer, with a session that wrote none of the code, checks the claims, the sizes and the readability before release work resumes.
 
 ---
 
@@ -452,7 +501,9 @@ F1 → F2 → F4 → F5
         ↘ G1 → G2 → G3, G4, G5, G6, G7 → G8, G9, G10 → G11
 F3 runs against the Python reference first, then gates G11
 S1 → S2 … S6 → S7          (after F1)
-R1 → R2 → R3, R6, R7       (R2 after G11; R7 after O4; R4 after R3)
+C1 → C3 → C11 → C12 → C13;  C1 → C4, C10, C2;  C5 → C6 → C9;  C5 → C7, C8
+C14 after every C item except C2
+R1 → R2 → R3, R6, R7       (R2 after C14; R7 after O4; R4 after R3)
 0.5 released
 A1, A2, A3 → A5, A6 → A4, A7, A8, A9, A10
 W1 → W2, W3, W4, W5 → W6, W7, W8
